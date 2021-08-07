@@ -142,11 +142,24 @@ let update_operators (param : update_operators) (storage : storage) : result =
                 (([] : operation list), storage)
     
 
-let mint (param : mint) (storage : storage) : result = 
-    // if Tezos.sender <> an_operator then failwith
-    // Otherwise mint by adding balance
+let rec mint (param : mint) (storage : storage) : result = 
     let minting_list = param in // param : (owner_ * token_id_ * amt_) list
-    (([] : operation list), storage)
+    match minting_list with 
+    | [] -> (([] : operation list), storage)
+    | hd :: tl -> 
+        let (owner_, token_id_, amt_) = hd in
+        match (Big_map.find_opt (Tezos.sender, token_id_) storage.fa2_ledger) with
+        | None -> (failwith error_FA2_NOT_OPERATOR : result)
+        | Some sender_token_id_privelege -> 
+            if sender_token_id_privelege <> token_id then (failwith error_FA2_NOT_OPERATOR : result) else
+            let owner_balance = 
+                match (Big_map.find_opt (owner_, token_id_) storage.fa2_ledger) with
+                | None -> 0n
+                | Some owner_prev_balance -> owner_prev_balance
+            let new_owner_balance = owner_balance + amt_ in
+            let new_fa2_ledger = Big_map.update (owner_, token_id_) (Some new_owner_balance) storage.fa2_ledger in
+            let storage = {storage with fa2_ledger = new_fa2_ledger} in 
+            mint tl storage
 
 let burn (param : burn) (storage : storage) : result = 
     // if Tezos.sender <> owner then failwith
