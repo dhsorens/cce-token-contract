@@ -119,18 +119,33 @@ let balance_of (param : balance_of) (storage : storage) : result =
     ([t], storage)
 
 let update_operators (param : update_operators) (storage : storage) : result = 
-    // check permissions
-    // match param with Add_operator or Remove_operator
-    // update the big_map
     match param with
-    | Add_operator (owner_, operator_, token_id_) -> (([] : operation list), storage)
-    | Remove_operator (owner_, operator_, token_id_) -> (([] : operation list), storage)
+    | Add_operator (owner_, operator_, token_id_) -> 
+        match (Big_map.find_opt owner_ storage.operators) with
+        | None -> (failwith error_FA2_NOT_OPERATOR : result)
+        | Some result_token_id -> 
+            if result_token_id <> token_id_ then (failwith error_FA2_NOT_OPERATOR : result) else
+            let new_operators = Big_map.update operator_ (Some token_id_) storage.operators in
+            let storage = {storage with operators = new_operators} in 
+            (([] : operation list), storage)
+    | Remove_operator (owner_, operator_, token_id_) ->
+        match (Big_map.find_opt owner_ storage.operators) with
+        | None -> (failwith error_FA2_NOT_OPERATOR : result)
+        | Some result_token_id -> 
+            if result_token_id <> token_id_ then (failwith error_FA2_NOT_OPERATOR : result) else
+            match (Big_map.find_opt operator_ token_id_) with
+            | None -> (([] : operation list), storage) // Nothing happens
+            | Some operator_token_id ->
+                if operator_token_id <> token_id_ then (([] : operation list), storage) else
+                let new_operators = Big_map.update operator_ None storage.operators in
+                let storage = {storage with operators = new_operators} in 
+                (([] : operation list), storage)
     
 
 let mint (param : mint) (storage : storage) : result = 
     // if Tezos.sender <> an_operator then failwith
     // Otherwise mint by adding balance
-    let minting_list = param in // param : (owner_ * amt_) list
+    let minting_list = param in // param : (owner_ * token_id_ * amt_) list
     (([] : operation list), storage)
 
 let burn (param : burn) (storage : storage) : result = 
