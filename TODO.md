@@ -1,7 +1,8 @@
 # Roadmap Moving Forward
 
 Short term:
-* Write out the basic FA2 functions and make sure they comply with the FA2 standard
+* Debug the basic FA2 functions and make sure they comply with the FA2 standard
+* Think about permissions on burning tokens
 
 Medium term:
 * Resolve the issue of fungibility/non-fungibility and token metadata
