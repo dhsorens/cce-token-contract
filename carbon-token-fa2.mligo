@@ -68,6 +68,18 @@ let error_FA2_SENDER_HOOK_UNDEFINED = 9n // Sender hook is required by the permi
  * Aux Functions
  * ============================================================================= *)
 
+let rec owner_and_id_to_balance (accumulator : (owner_ * token_id_ * amt_) list) (request_list : (owner_ * token_id_) list) (fa2_ledger : (owner_ * token_id_ , amt_) big_map) : (owner_ * token_id_ * amt_) list =
+    match request_list with
+    | [] -> accumulator 
+    | request :: requests ->
+        let (owner, token_id) = request in 
+        let amt = 
+        match (Big_map.find_opt request fa2_ledger) with
+        | None -> 0n
+        | Some owner_balance -> owner_balance
+        in 
+        let accumulator = (owner, token_id, amt) :: accumulator 
+        in owner_and_id_to_balance accumulator 
 
 
 (* =============================================================================
@@ -99,11 +111,12 @@ let rec transfer (param , storage : transfer * storage) : result =
         //transfer ((from_, tl), storage)
     | [] -> (([] : operation list), storage)
 
-let balance_of (param : balance_of) (storage : storage) : result = 
-    // check permissions
-    // return amt_
-    let ( l1 , l2 ) = param in // param : ((owner_ * token_id_) list) * ((owner_ * token_id_ * amt_) list contract)
-    (([] : operation list), storage)
+let balance_of (param : balance_of) (storage : storage) : result =
+    let (request_list, callback) = param in // param : ((owner_ * token_id_) list) * ((owner_ * token_id_ * amt_) list contract)
+    let ([] : (owner_ * token_id_ * amt_) list)) = accumulator in
+    let ack_list = owner_and_id_to_balance accumulator request_list storage.fa2_ledger in
+    let t = Tezos.transaction ack_list 0n callback in
+    ([t], storage)
 
 let update_operators (param : update_operators) (storage : storage) : result = 
     // check permissions
