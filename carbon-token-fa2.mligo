@@ -5,7 +5,7 @@
 
 // TODO : 
 // TODO : Total supply
-// TODO : Permission rights
+// TODO : Permission rights, Tezos.source vs Tezos.sender
 
 
 (* =============================================================================
