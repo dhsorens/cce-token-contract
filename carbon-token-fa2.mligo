@@ -94,21 +94,22 @@ let rec transfer (param , storage : transfer * storage) : result =
         let (fa2_to, fa2_token_id, fa2_amt) = hd in
         let big_map_key = (fa2_from, fa2_token_id) in
         let fa2_ledger = storage.fa2_ledger in
-        (match (Big_map.find_opt big_map_key fa2_ledger) with
-        | None -> (failwith error_FA2_INSUFFICIENT_BALANCE : result)
-        | Some token_balance -> 
-            if (token_balance < fa2_amt) then (failwith error_FA2_INSUFFICIENT_BALANCE : result) else
-            let new_fa2_ledger_1 = (Big_map.update (fa2_from, fa2_token_id) (Some (abs (token_balance - fa2_amt))) storage.fa2_ledger) in 
-            let recipient_balance = 
-                (match (Big_map.find_opt (fa2_to, fa2_token_id) fa2_ledger) with
-                | None -> 0n
-                | Some recipient_token_balance -> recipient_token_balance)
-            in
-            let new_fa2_ledger = (Big_map.update (fa2_to, fa2_token_id) (Some (recipient_balance + fa2_amt)) storage.fa2_ledger) in 
-            let new_storage = {storage with fa2_ledger = new_fa2_ledger} in
-            let new_param = (fa2_from, tl) in
-            transfer (new_param, new_storage)
-        )
+        let sender_token_balance =
+            (match (Big_map.find_opt big_map_key fa2_ledger) with
+            | None -> 0n
+            | Some token_balance -> token_balance)
+        in
+        if (sender_token_balance < fa2_amt) then (failwith error_FA2_INSUFFICIENT_BALANCE : result) else
+        let new_fa2_ledger_0 = (Big_map.update (fa2_from, fa2_token_id) (Some (abs (sender_token_balance - fa2_amt))) storage.fa2_ledger) in 
+        let recipient_balance = 
+            (match (Big_map.find_opt (fa2_to, fa2_token_id) fa2_ledger) with
+            | None -> 0n
+            | Some recipient_token_balance -> recipient_token_balance)
+        in
+        let new_fa2_ledger = (Big_map.update (fa2_to, fa2_token_id) (Some (recipient_balance + fa2_amt)) new_fa2_ledger_0) in 
+        let new_storage = {storage with fa2_ledger = new_fa2_ledger} in
+        let new_param = (fa2_from, tl) in
+        transfer (new_param, new_storage)
     | [] -> (([] : operation list), storage)
 
 
