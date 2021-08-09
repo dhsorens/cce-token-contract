@@ -68,21 +68,17 @@ let error_FA2_SENDER_HOOK_UNDEFINED = 9n // Sender hook is required by the permi
 
 let rec owner_and_id_to_balance (param : ((fa2_owner * fa2_token_id * fa2_amt) list) * ((fa2_owner * fa2_token_id) list) * ((fa2_owner * fa2_token_id , fa2_amt) big_map)) : (fa2_owner * fa2_token_id * fa2_amt) list =
     let (accumulator, request_list, fa2_ledger) = param in
-    match (List.head_opt request_list) with
-    | None -> accumulator 
-    | Some h -> 
+    match request_list with
+    | [] -> accumulator 
+    | h :: t -> 
         let (owner, token_id) = h in 
         let amt =
-            match (Big_map.find_opt (owner, token_id) fa2_ledger) with 
+            (match (Big_map.find_opt (owner, token_id) fa2_ledger) with 
             | None -> 0n
-            | Some owner_balance -> owner_balance
+            | Some owner_balance -> owner_balance)
         in
         let accumulator = (owner, token_id, amt) :: accumulator in
-        let updated_request_list = 
-            match (List.tail_opt request_list) with 
-            | None -> ([] : (fa2_owner * fa2_token_id) list)
-            | Some t -> t
-        in
+        let updated_request_list = t in
         owner_and_id_to_balance (accumulator, updated_request_list, fa2_ledger) 
 
 
