@@ -3,7 +3,8 @@
 (* FA2 Standard: https://tezos.b9lab.com/fa2 *)
 
 
-// TODO : Total supply
+// TODO : metadata
+// TODO : update_operators should support a batch
 
 
 (* =============================================================================
@@ -171,7 +172,7 @@ let rec mint_tokens (param, storage : mint * storage) : result =
             let storage = {storage with fa2_ledger = new_fa2_ledger} in 
             mint_tokens (tl, storage))
 
-let burn (param : burn) (storage : storage) : result = (([] : operation list), storage) // TODO : Permissions TBD 
+let burn (_param : burn) (storage : storage) : result = (([] : operation list), storage) // TODO : Permissions TBD 
 
 (* =============================================================================
  * Main
