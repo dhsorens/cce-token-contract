@@ -18,10 +18,12 @@ type fa2_amt = nat
 type fa2_owner = address
 type fa2_operator = address
 
+type token_metadata = (string, bytes) map
 
 type storage = {
     fa2_ledger : (fa2_owner * fa2_token_id , fa2_amt) big_map ;
     operators : (fa2_operator, fa2_token_id) big_map;
+    metadata : (fa2_token_id, token_metadata) big_map;
 }
 
 
@@ -39,6 +41,7 @@ type update_operators =
     | Remove_operator of fa2_owner * fa2_operator * fa2_token_id
 type mint = (fa2_owner * fa2_token_id * fa2_amt) list
 type burn = (fa2_owner * fa2_amt) list
+type get_metadata = fa2_token_id list
 
 type entrypoint = 
 | Transfer of transfer 
@@ -46,6 +49,7 @@ type entrypoint =
 | Update_operators of update_operators
 | Mint of mint
 | Burn of burn
+| Get_metadata of get_metadata
 
 
 (* =============================================================================
@@ -174,6 +178,8 @@ let rec mint_tokens (param, storage : mint * storage) : result =
 
 let burn (_param : burn) (storage : storage) : result = (([] : operation list), storage) // TODO : Permissions TBD 
 
+let get_metadata (_param : get_metadata) (storage : storage) : result = (([] : operation list), storage) // TODO : Metadata details TBD
+
 (* =============================================================================
  * Main
  * ============================================================================= *)
@@ -190,3 +196,5 @@ let main ((entrypoint, storage) : entrypoint * storage) : result =
         mint_tokens (param, storage)
     | Burn param ->
         burn param storage
+    | Get_metadata param ->
+        get_metadata param storage
