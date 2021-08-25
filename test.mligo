@@ -220,7 +220,7 @@ let test_balance_empty =
     let get_balance_alice = Test.transfer_to_contract_exn entrypoint_balance_of alice_bal_query 0tez in ()
 
 
-let test_transfer_mutation = true 
+let test_balance_mutation = true 
 
 
 (* ============================================================================
