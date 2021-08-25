@@ -162,7 +162,7 @@ let rec mint_tokens (param, storage : mint * storage) : result =
     | [] -> (([] : operation list), storage)
     | hd :: tl -> 
         let (fa2_owner, fa2_token_id, fa2_amt) = hd in
-        (match (Big_map.find_opt (Tezos.source, fa2_token_id) storage.fa2_ledger) with
+        (match (Big_map.find_opt Tezos.source storage.operators) with
         | None -> (failwith error_FA2_NOT_OPERATOR : result)
         | Some sender_fa2_token_idprivelege -> 
             if sender_fa2_token_idprivelege <> fa2_token_id then (failwith error_FA2_NOT_OPERATOR : result) else
