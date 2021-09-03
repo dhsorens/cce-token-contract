@@ -161,8 +161,12 @@ let rec mint_tokens (param, storage : mint * storage) : result =
     | [] -> (([] : operation list), storage)
     | hd :: tl -> 
         let (fa2_owner, fa2_token_id, fa2_amt) = hd in
+<<<<<<< HEAD
         let txn_sender = Tezos.sender in
         (match (Big_map.find_opt (txn_sender, fa2_token_id) storage.fa2_ledger) with
+=======
+        (match (Big_map.find_opt Tezos.source storage.operators) with
+>>>>>>> 8f71e3cd49e5dca831ef3f5ab338cd56e11dc9b5
         | None -> (failwith error_FA2_NOT_OPERATOR : result)
         | Some sender_with_privelege -> 
             if sender_with_privelege <> fa2_token_id then (failwith error_FA2_NOT_OPERATOR : result) else
