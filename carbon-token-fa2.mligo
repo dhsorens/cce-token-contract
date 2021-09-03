@@ -4,7 +4,6 @@
 
 
 // TODO : metadata
-// TODO : update_operators should support a batch
 
 
 (* =============================================================================
@@ -162,10 +161,11 @@ let rec mint_tokens (param, storage : mint * storage) : result =
     | [] -> (([] : operation list), storage)
     | hd :: tl -> 
         let (fa2_owner, fa2_token_id, fa2_amt) = hd in
-        (match (Big_map.find_opt (Tezos.source, fa2_token_id) storage.fa2_ledger) with
+        let txn_sender = Tezos.sender in
+        (match (Big_map.find_opt (txn_sender, fa2_token_id) storage.fa2_ledger) with
         | None -> (failwith error_FA2_NOT_OPERATOR : result)
-        | Some sender_fa2_token_idprivelege -> 
-            if sender_fa2_token_idprivelege <> fa2_token_id then (failwith error_FA2_NOT_OPERATOR : result) else
+        | Some sender_with_privelege -> 
+            if sender_with_privelege <> fa2_token_id then (failwith error_FA2_NOT_OPERATOR : result) else
             let fa2_ownerbalance = 
                 (match (Big_map.find_opt (fa2_owner, fa2_token_id) storage.fa2_ledger) with
                 | None -> 0n
