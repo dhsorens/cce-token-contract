@@ -46,7 +46,7 @@ let touch_fa2 (param : touch_fa2) (storage : storage) : result =
     
     let param_touch : mint_data list = [ (owner, id, qty); ] in 
     let entrypoint_touch = (
-        match (Tezos.get_entrypoint_opt "%mint" addr_fa2 : mint_data list contract option) with 
+        match (Tezos.get_entrypoint_opt "mint" addr_fa2 : mint_data list contract option) with 
         | None -> (failwith error_INCORRECT_ENTRYPOINT_TYPE : mint_data list contract)
         | Some c -> c
     ) in 
