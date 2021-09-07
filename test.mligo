@@ -140,7 +140,7 @@ let test_transfer_empty =
     (assert (alice_balance = alice_bal), assert (bob_balance = bob_bal))
 
 
-let test_transfer_mutation = true
+let test_transfer_mutation = ()
 
 
 
@@ -194,7 +194,7 @@ let test_operator_remove =
         assert ((Big_map.find_opt addr_operator fa2_storage.operators) = (None : nat option))
     )
 
-let test_operator_mutation = true 
+let test_operator_mutation = () 
 
 
 (* ============================================================================
@@ -220,7 +220,7 @@ let test_balance_empty =
     let get_balance_alice = Test.transfer_to_contract_exn entrypoint_balance_of alice_bal_query 0tez in ()
 
 
-let test_balance_mutation = true 
+let test_balance_mutation = () 
 
 
 (* ============================================================================
@@ -291,34 +291,34 @@ let test_mint_non_operator =
     assert (alice_balance = amt_to_mint)
 *)
 
-let test_mint_mutation = true 
+let test_mint_mutation = () 
 
 
 (* ============================================================================
  * Test Burn Entrypoint 
  * ============================================================================ *)
-let test_burn = true
+let test_burn = ()
 
 
-let test_burn_empty = true 
+let test_burn_empty = () 
     // Make sure the empty list behaves as expected 
 
 
 
-let test_burn_mutation = true 
+let test_burn_mutation = () 
 
 
 
 (* ============================================================================
  * Test Metadata Entrypoint 
  * ============================================================================ *)
-let test_metadata = true 
+let test_metadata = () 
 
 
-let test_metadata_empty = true 
+let test_metadata_empty = () 
     // Make sure the empty list behaves as expected 
 
 
 
-let test_metadata_mutation = true 
+let test_metadata_mutation = () 
 
