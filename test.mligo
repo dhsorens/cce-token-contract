@@ -3,10 +3,16 @@
  * ============================================================================ *)
 
 #include "carbon-token-fa2.mligo"
-let  main = main
-type storage = storage 
-type entrypoint = entrypoint 
-type result = result 
+let  main_fa2 = main
+type storage_fa2 = storage 
+type entrypoint_fa2 = entrypoint 
+type result_fa2 = result
+
+#include "carbon-token.mligo"
+let  main_touch = main
+type storage_touch = storage 
+type entrypoint_touch = entrypoint 
+type result_touch = result
 
 
 (* ============================================================================
@@ -36,14 +42,14 @@ let init_contracts (alice_bal : nat) (bob_bal : nat) =
          Test.nth_bootstrap_account 2, Test.nth_bootstrap_account 3) in 
 
     // initiate contract; both alice and bob have 1000n tokens
-    let init_storage = {
+    let init_fa2_storage = {
         fa2_ledger = ( Big_map.literal [ ((addr_alice, 0n), alice_bal) ; ((addr_bob, 0n), bob_bal) ; ] );
         operators  = ( Big_map.literal [ (addr_operator, 0n); ] ) ; 
         metadata   = ( Big_map.empty : (fa2_token_id, token_metadata) big_map ) ;
     } in
     let (typed_addr_fa2, pgm_fa2, size_fa2) = 
-        Test.originate main init_storage 0tez in
-    (addr_alice, addr_bob, addr_operator, addr_dummy, typed_addr_fa2)
+        Test.originate main_fa2 init_fa2_storage 0tez in
+     (addr_alice, addr_bob, addr_operator, addr_dummy, typed_addr_fa2)
 
 (* A test to make sure the setup results as expected *)
 let test_verify_setup = 
@@ -147,7 +153,7 @@ let test_transfer_mutation = ()
 (* ============================================================================
  * Test Update_operators Entrypoint
  * ============================================================================ *)
-(* Add and remove an operator *)
+(* Add and remove an operator *) 
 let test_operator_add = 
     // contract setup 
     let alice_bal = 100n in 
@@ -226,20 +232,19 @@ let test_balance_mutation = ()
 (* ============================================================================
  * Test Mint Entrypoint 
  * ============================================================================ *)
-(* mint 100n tokens and give them to alice *)
+(* mint 100n tokens and give them to alice *) 
 let test_mint = 
     let alice_bal = 0n in 
     let bob_bal   = 0n in 
     let amt_to_mint = 100n in 
     let (addr_alice, addr_bob, addr_operator, addr_dummy, typed_addr_fa2) = 
         init_contracts alice_bal bob_bal in
-
+     
     // mint 100n tokens (of id = 0n) for alice 
     let operator_src = Test.set_source addr_operator in 
     let entrypoint_mint : mint contract = Test.to_entrypoint "mint" typed_addr_fa2 in 
     let txndata_mint : mint = [(addr_alice, 0n, amt_to_mint) ; ] in
     let txn_mint_tokens = Test.transfer_to_contract_exn entrypoint_mint txndata_mint 0tez in
-
     // assert the storage (balances) are what they should be 
     let (typed_addr_get_bal, pgm_get_bal, size_get_bal) = Test.originate get_bal 0n 0tez in 
     let entrypoint_balance_of : balance_of contract = (Test.to_entrypoint "balance_of" typed_addr_fa2) in
@@ -322,3 +327,58 @@ let test_metadata_empty = ()
 
 let test_metadata_mutation = () 
 
+
+
+(* ============================================================================
+ * Test Touch Functionality 
+ * ============================================================================ *)
+
+// initiates an instance with alice, bob, and an operator
+let init_touch_contracts (alice_bal : nat) (bob_bal : nat) = 
+    // generate some implicit addresses
+    let reset_state_unit = Test.reset_state 4n ([] : nat list) in
+    let (addr_alice, addr_bob, addr_operator, addr_dummy) = 
+        (Test.nth_bootstrap_account 0, Test.nth_bootstrap_account 1, 
+         Test.nth_bootstrap_account 2, Test.nth_bootstrap_account 3) in 
+
+    // initiate touch contract 
+    let init_touch_storage = {
+        addr_fa2 = ("tz1Ke2h7sDdakHJQh8WX4Z372du1KChsksyU" : address);
+    } in 
+    let (typed_addr_touch, pgm_touch, size_touch) = 
+        Test.originate main_touch init_touch_storage 0tez in
+    let addr_touch = Tezos.address (Test.to_contract typed_addr_touch) in 
+
+    // initiate contract; both alice and bob have 1000n tokens
+    let init_fa2_storage = {
+        fa2_ledger = ( Big_map.literal [ ((addr_alice, 0n), alice_bal) ; ((addr_bob, 0n), bob_bal) ; ] );
+        operators  = ( Big_map.literal [ (addr_touch, 0n); ] ) ; 
+        metadata   = ( Big_map.empty : (fa2_token_id, token_metadata) big_map ) ;
+    } in
+    let (typed_addr_fa2, pgm_fa2, size_fa2) = 
+        Test.originate main_fa2 init_fa2_storage 0tez in
+    let addr_fa2 = Tezos.address (Test.to_contract typed_addr_fa2) in 
+    
+    // change addr_fa2 
+    let txndata_fa2 = addr_fa2 in 
+    let entrypoint_fa2 = (Test.to_entrypoint "updateAddress" typed_addr_touch : address contract) in 
+    let txn_fa2 =
+        Test.transfer_to_contract_exn entrypoint_fa2 txndata_fa2 0tez in 
+
+    (addr_alice, addr_bob, addr_operator, addr_dummy, typed_addr_fa2, typed_addr_touch)
+
+
+let test_touch = 
+    // originate fa2 contract 
+    let alice_bal = 0n in 
+    let bob_bal   = 0n in 
+    let amt_to_mint = 100n in 
+    let (addr_alice, addr_bob, addr_operator, addr_dummy, typed_addr_fa2, typed_addr_touch) = 
+        init_touch_contracts alice_bal bob_bal in 
+    
+    // touch the touch contract 
+    let txndata_touch = (addr_alice, 0n, 100n) in // mint 100n of token 0n for alice 
+    let entrypoint_touch = (Test.to_entrypoint "touch" typed_addr_touch : mint_data contract) in 
+    let txn_touch = 
+        Test.transfer_to_contract_exn entrypoint_touch txndata_touch 0tez in 
+    ()
