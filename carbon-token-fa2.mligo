@@ -162,19 +162,20 @@ let rec mint_tokens (param, storage : mint * storage) : result =
     | hd :: tl -> 
         let (fa2_owner, fa2_token_id, fa2_amt) = hd in
         let txn_sender = Tezos.sender in
-        (match (Big_map.find_opt (txn_sender, fa2_token_id) storage.fa2_ledger) with
-        | None -> (failwith error_FA2_NOT_OPERATOR : result)
-        | Some sender_with_privilege -> 
-            if sender_with_privilege <> fa2_token_id then (failwith error_FA2_NOT_OPERATOR : result) else
-            let fa2_ownerbalance = 
-                (match (Big_map.find_opt (fa2_owner, fa2_token_id) storage.fa2_ledger) with
-                | None -> 0n
-                | Some fa2_ownerprev_balance -> fa2_ownerprev_balance)
-            in
-            let new_fa2_ownerbalance = fa2_ownerbalance + fa2_amt in
-            let new_fa2_ledger = Big_map.update (fa2_owner, fa2_token_id) (Some new_fa2_ownerbalance) storage.fa2_ledger in
-            let storage = {storage with fa2_ledger = new_fa2_ledger} in 
-            mint_tokens (tl, storage))
+        let has_privelege : unit = 
+            (match (Big_map.find_opt txn_sender storage.operators) with
+            | None -> (failwith error_FA2_NOT_OPERATOR : unit)
+            | Some sender_with_privilege -> 
+                if sender_with_privilege <> fa2_token_id then (failwith error_FA2_NOT_OPERATOR : unit) else ()) in 
+        let fa2_ownerbalance = 
+            (match (Big_map.find_opt (fa2_owner, fa2_token_id) storage.fa2_ledger) with
+            | None -> 0n
+            | Some fa2_ownerprev_balance -> fa2_ownerprev_balance)
+        in
+        let new_fa2_ownerbalance = fa2_ownerbalance + fa2_amt in
+        let new_fa2_ledger = Big_map.update (fa2_owner, fa2_token_id) (Some new_fa2_ownerbalance) storage.fa2_ledger in
+        let storage = {storage with fa2_ledger = new_fa2_ledger} in 
+        mint_tokens (tl, storage)
 
 let burn (_param : burn) (storage : storage) : result = (([] : operation list), storage) // TODO : Permissions TBD 
 
