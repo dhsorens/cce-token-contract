@@ -3,12 +3,6 @@
 // TODO : Permissions for who can add projects -- do this with a "greenlit" datatype.
 //        That gives them the info and they have a privelege to exercise it if they want to.
 
-#include "carbon-project.mligo"
-let  main_project = main
-type storage_project = storage 
-type entrypoint_project = entrypoint 
-type result_project = result
-
 #include "carbon-token-fa2.mligo"
 let  main_fa2 = main
 type storage_fa2 = storage 
@@ -22,9 +16,9 @@ type result_fa2 = result
 
 // TODO : what other project information will you need, e.g. for the AMM?
 type project = {addr_project : address;}
-type create_project = {owner : address; metadata : metadata list;}
-type add_token = {project_addr : address; token_id : address; token_metadata : metadata;}
-type update_whitelist = ()
+type create_project = (nat * token_metadata) list // (id, metadata) list
+type add_token = {project_addr : address; token_id : address; token_metadata : token_metadata;}
+type update_whitelist = unit
 
 type storage = {
     admin : address ;
@@ -40,6 +34,7 @@ type entrypoint =
 | CreateProject of create_project 
 | AddToken of add_token 
 | UpdateWhitelist of update_whitelist
+
 
 type result = (operation list) * storage
 
@@ -60,30 +55,31 @@ let error_PERMISSIONS_DENIED = 1n
  * Entrypoint Functions
  * ============================================================================= *)
 
-let create_project (create_project : create_project) (storage : storage) : result = 
+let create_project (param : create_project) (storage : storage) : result = 
     // construct the initial storage for your project's FA2 contract
     let fa2_ledger = (Big_map.empty : (fa2_owner * fa2_token_id , fa2_amt) big_map) in 
     let operators = // the project owner is operator for all her tokens 
         List.fold_left 
         (fun (acc, (id,meta) :((fa2_operator * fa2_token_id, unit) big_map) * (nat * token_metadata) ) 
-            -> Big_map.update (Tezos.sender, token_id) (Some () : unit option) acc)
+            -> Big_map.update (Tezos.sender, id) (Some () : unit option) acc)
         (Big_map.empty : (fa2_operator * fa2_token_id, unit) big_map)
-        create_project
+        param
     in 
     let metadata = 
         List.fold_left 
         (fun (acc, (id, meta) : ((fa2_token_id, token_metadata) big_map) * (nat * token_metadata) ) 
             -> Big_map.update id (Some meta : token_metadata option) acc ) // ensures no duplicate token ids 
         (Big_map. empty : (fa2_token_id, token_metadata) big_map)
-        create_project
+        param
     in 
 
     // initiate an FA2 contract w/permissions given to project contract
     let fa2_init_storage : storage_fa2 = {
+        carbon_contract = Tezos.self_address ;
         fa2_ledger = fa2_ledger ;
         operators = operators ;
         metadata = metadata ;
-    }
+    } in 
     let (op_new_fa2,addr_new_fa2) = 
         Tezos.create_contract
             main_fa2
@@ -95,7 +91,7 @@ let create_project (create_project : create_project) (storage : storage) : resul
     // update the local storage
     let updated_storage = { storage with 
         projects = Big_map.update Tezos.sender (Some { addr_project = addr_fa2; } : project option) storage.projects ;
-    }
+    } in 
 
     // final state
     ([op_new_fa2], updated_storage)
@@ -129,9 +125,11 @@ let update_whitelist (param : update_whitelist) (storage : storage) : result =
  * Main
  * ============================================================================= *)
 
-let main ((entrypoint, storage) : entrypoint * storage) : result =
+let main (entrypoint, storage : entrypoint * storage) : result =
     match entrypoint with 
     | CreateProject param ->
-        create_project param 
+        create_project param storage
     | AddToken param ->
-        add_token param
+        add_token param storage 
+    | UpdateWhitelist param -> 
+        update_whitelist param storage

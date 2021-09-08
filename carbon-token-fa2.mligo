@@ -62,7 +62,7 @@ type update_operators =
 type mint = (fa2_owner * fa2_token_id * fa2_amt) list
 type burn = (fa2_owner * fa2_amt) list
 type get_metadata = fa2_token_id list
-type add_token = nat * metadata // token_id, metadata
+type add_token = nat * token_metadata // token_id, metadata
 
 
 type entrypoint = 
@@ -155,28 +155,23 @@ let balance_of (param : balance_of) (storage : storage) : result =
 let update_operators (param : update_operators) (storage : storage) : result = 
     match param with
     | Add_operator (fa2_owner, fa2_operator, fa2_token_id) ->
-        (match (Big_map.find_opt fa2_owner storage.operators) with
+        (match (Big_map.find_opt (fa2_owner,fa2_token_id) storage.operators) with
         | None -> (failwith error_FA2_NOT_OPERATOR : result)
-        | Some result_token_id ->
-            if result_token_id <> fa2_token_id then (failwith error_FA2_NOT_OPERATOR : result) else
-            let new_operators = Big_map.update fa2_operator (Some fa2_token_id) storage.operators in
+        | Some () ->
+            let new_operators = Big_map.update (fa2_operator, fa2_token_id) (Some ()) storage.operators in
             let storage = {storage with operators = new_operators} in 
             (([] : operation list), storage)
         )
     | Remove_operator (fa2_owner, fa2_operator, fa2_token_id) ->
-        (match (Big_map.find_opt fa2_owner storage.operators) with
+        (match (Big_map.find_opt (fa2_owner,fa2_token_id) storage.operators) with
         | None -> (failwith error_FA2_NOT_OPERATOR : result)
-        | Some result_token_id -> 
-            if result_token_id <> fa2_token_id then (failwith error_FA2_NOT_OPERATOR : result) else
-            (match (Big_map.find_opt fa2_operator storage.operators) with
+        | Some () -> 
+            (match (Big_map.find_opt (fa2_operator,fa2_token_id) storage.operators) with
             | None -> (([] : operation list), storage) // Nothing happens
-            | Some operator_token_id ->
-                if operator_token_id <> fa2_token_id 
-                then (([] : operation list), storage) 
-                else
-                    let new_operators = Big_map.update fa2_operator (None : fa2_token_id option) storage.operators in
-                    let storage = {storage with operators = new_operators} in 
-                    (([] : operation list), storage)
+            | Some () ->
+                let new_operators = Big_map.update (fa2_operator,fa2_token_id) (None : unit option) storage.operators in
+                let storage = {storage with operators = new_operators} in 
+                (([] : operation list), storage)
             )
         )
 
@@ -189,10 +184,9 @@ let rec mint_tokens (param, storage : mint * storage) : result =
         let (fa2_owner, fa2_token_id, fa2_amt) = hd in
         let txn_sender = Tezos.sender in
         let has_privelege : unit = 
-            (match (Big_map.find_opt txn_sender storage.operators) with
+            (match (Big_map.find_opt (txn_sender,fa2_token_id) storage.operators) with
             | None -> (failwith error_FA2_NOT_OPERATOR : unit)
-            | Some sender_with_privilege -> 
-                if sender_with_privilege <> fa2_token_id then (failwith error_FA2_NOT_OPERATOR : unit) else ()) in 
+            | Some () -> () ) in 
         let fa2_ownerbalance = 
             (match (Big_map.find_opt (fa2_owner, fa2_token_id) storage.fa2_ledger) with
             | None -> 0n
@@ -230,13 +224,15 @@ let add_token (param : add_token) (storage : storage) : result =
     let updated_storage = { storage with 
         operators = new_operators ;
         metadata = new_metadata ;
-    }
+    } in 
+
+    (([] : operation list), updated_storage)
 
 (* =============================================================================
  * Main
  * ============================================================================= *)
 
-let main ((entrypoint, storage) : entrypoint * storage) : result =
+[@inline] let main ((entrypoint, storage) : entrypoint * storage) : result =
     match entrypoint with
     | Transfer param ->
         transfer (param, storage)
