@@ -17,7 +17,7 @@ type result_fa2 = result
 // TODO : what other project information will you need, e.g. for the AMM?
 type project = {addr_project : address;}
 type create_project = (nat * token_metadata) list // (id, metadata) list
-type add_token = {project_addr : address; token_id : address; token_metadata : token_metadata;}
+type add_token = {project_addr : address; token_id : nat; token_metadata : token_metadata;}
 type update_whitelist = unit
 
 type storage = {
@@ -79,13 +79,12 @@ let create_project (param : create_project) (storage : storage) : result =
         fa2_ledger = fa2_ledger ;
         operators = operators ;
         metadata = metadata ;
-    } in 
+    } in
     let (op_new_fa2,addr_new_fa2) = 
         Tezos.create_contract
-            main_fa2
-            (None : key_hash option) // the baker
-            0tez
-            fa2_init_storage
+        (None : key_hash option)
+        0tez 
+        fa2_init_storage
     in
 
     // update the local storage
@@ -103,11 +102,11 @@ let add_token (param : add_token) (storage : storage) : result =
     let addr_fa2 = (
         match Big_map.find_opt Tezos.sender storage.projects with 
         | None -> (failwith error_PROJECT_NOT_FOUND : address)
-        | Some addr -> addr
+        | Some proj -> proj.addr_project
     ) in 
     let entrypoint_addToken = (
-        match Tezos.get_entrypoint_opt "add_token" addr_fa2 with 
-        | None -> (failwith error_PROJECT_NOT_FOUND : (nat * metadata) contract option)
+        match (Tezos.get_entrypoint_opt "%add_token" addr_fa2 : (nat * token_metadata) contract option) with 
+        | None -> (failwith error_PROJECT_NOT_FOUND : (nat * token_metadata) contract)
         | Some e -> e
     ) in 
 
@@ -116,7 +115,7 @@ let add_token (param : add_token) (storage : storage) : result =
 
     ([op_addToken], storage)
 
-let update_whitelist (param : update_whitelist) (storage : storage) : result = 
+let update_whitelist (_param : update_whitelist) (storage : storage) : result = 
     if Tezos.sender <> storage.admin then 
         (failwith error_PERMISSIONS_DENIED : result) else 
     (([] : operation list), storage)

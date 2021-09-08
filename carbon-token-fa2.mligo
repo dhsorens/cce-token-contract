@@ -3,29 +3,6 @@
 (* FA2 Standard: https://tezos.b9lab.com/fa2 *)
 
 
-// TODO : metadata : (additionality, leakage, permanence) (biodiversity)
-//     (white)
-//             Update the metadata over time?
-//  Pricing should be discovered by the market; tez/"most common" exchange rate *needs
-//  to be discoverable by the market*.
-
-// NOTES : Each project owner has multiple projects, each project has multiple zones;
-//         each zone has its own METADATA (coin type)
-//         Each project gets its own spinoff contract? Each mint corresponds to one zone.
-//         Each token corresponds to one tonne of carbon.
-//         CFMM interacts with all these; the central contract updates the CFMM.
-
-// to initiate project contract, you'll fix how many zones are in the project; master contract mints.
-// exchange rate takes into account token supply. "Zone mint entrypoint"
-// to initiate project content, coin metadata:
-//    -- metadata for all my zones : contains a link to the primary data
-//    -- fixed zones 
-//    -- have permission to mint as many as I want
-
-// Read the whitepaper more thoroughly 
-// Marketplace has to come along with this
-
-
 (* =============================================================================
  * Storage
  * ============================================================================= *)
@@ -183,7 +160,7 @@ let rec mint_tokens (param, storage : mint * storage) : result =
     | hd :: tl -> 
         let (fa2_owner, fa2_token_id, fa2_amt) = hd in
         let txn_sender = Tezos.sender in
-        let has_privelege : unit = 
+        let _has_privelege : unit = 
             (match (Big_map.find_opt (txn_sender,fa2_token_id) storage.operators) with
             | None -> (failwith error_FA2_NOT_OPERATOR : unit)
             | Some () -> () ) in 
@@ -197,7 +174,7 @@ let rec mint_tokens (param, storage : mint * storage) : result =
         let storage = {storage with fa2_ledger = new_fa2_ledger} in 
         mint_tokens (tl, storage)
 
-let burn (_param : burn) (storage : storage) : result = (([] : operation list), storage) // TODO : Permissions TBD 
+let burn_tokens (_param : burn) (storage : storage) : result = (([] : operation list), storage) // TODO : Permissions TBD 
 
 let get_metadata (_param : get_metadata) (storage : storage) : result = (([] : operation list), storage) // TODO : Metadata details TBD
 
@@ -213,10 +190,10 @@ let add_token (param : add_token) (storage : storage) : result =
         Big_map.update (owner, id) (Some ()) storage.operators in 
     
     // update metadata in storage
-    let check_id_not_used = (
+    let _check_id_not_used = (
         match Big_map.find_opt id storage.metadata with 
         | None -> () 
-        | Some m -> (failwith error_ID_ALREADY_IN_USE : unit)
+        | Some _ -> (failwith error_ID_ALREADY_IN_USE : unit)
     ) in 
     let new_metadata = 
         Big_map.update id (Some meta) storage.metadata in 
@@ -232,7 +209,7 @@ let add_token (param : add_token) (storage : storage) : result =
  * Main
  * ============================================================================= *)
 
-[@inline] let main ((entrypoint, storage) : entrypoint * storage) : result =
+let main ((entrypoint, storage) : entrypoint * storage) : result =
     match entrypoint with
     | Transfer param ->
         transfer (param, storage)
@@ -243,7 +220,7 @@ let add_token (param : add_token) (storage : storage) : result =
     | Mint param -> 
         mint_tokens (param, storage)
     | Burn param ->
-        burn param storage
+        burn_tokens param storage
     | Get_metadata param ->
         get_metadata param storage
     | Add_token param ->
