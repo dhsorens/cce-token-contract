@@ -1,6 +1,6 @@
 // The main contract that controls the carbon economics project 
 
-// TODO : Permissions for who can add projects -- do this with a "greenlit" datatype.
+// TODO : Permissions for who can add projects -- do this with a "whitelist" datatype.
 //        That gives them the info and they have a privelege to exercise it if they want to.
 
 #include "carbon-token-fa2.mligo"
@@ -74,6 +74,7 @@ let create_project (param : create_project) (storage : storage) : result =
     in 
 
     // initiate an FA2 contract w/permissions given to project contract
+    // TODO : This needs fixing
     let fa2_init_storage : storage_fa2 = {
         carbon_contract = Tezos.self_address ;
         fa2_ledger = fa2_ledger ;
