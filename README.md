@@ -26,3 +26,11 @@ As the code stands, to add a new token, you provide the new token id and metadat
 
 TODO :
 update permissions as described in the section above.
+
+
+## Mint
+
+A project owner is the admin (operator) for all of their tokens and can unilaterally mint them. To do so they simply query their FA2 contract with the token id, the amount to mint, and the owner of these new tokens.
+
+TODO : 
+Total supply should be capped by the Carbon contract to keep the token holders from surprising the market and devaluing the tokens in circulation by minting more.
