@@ -34,3 +34,8 @@ A project owner is the admin (operator) for all of their tokens and can unilater
 
 TODO : 
 Total supply should be capped by the Carbon contract to keep the token holders from surprising the market and devaluing the tokens in circulation by minting more.
+
+
+## FA2 Functionality
+
+Users and token holders wishing to manage their tokens, i.e. with the `Transfer` or `Balance_of` functions, can query the project's FA2 contract and it functions as normal.
