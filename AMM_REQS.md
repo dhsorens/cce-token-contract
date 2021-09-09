@@ -13,7 +13,7 @@ The ranking mechanism initially can rely on additionality, leakage, permanence, 
 * Any change should not shock the market, but only change things slowly over time.
     * Part of that will be we want a ranking mechanism that is good enough to last and not need many edits -- edits would be small optimisations.
     * Either that, or have some system of pricing 
-
+* Things that are harder to do should be more profitable for the people that do them. BURNT tokens incentivize this well.
 
 Token holders can burn their tokens and will receive a token in return. There might be a market for these. It should be a "burnt" token; this will be a **social utility token** (!!).
 * People can build platforms where this is the currency, or gives special access
