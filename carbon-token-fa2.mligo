@@ -3,9 +3,6 @@
 (* FA2 Standard: https://tezos.b9lab.com/fa2 *)
 
 
-// TODO : metadata
-
-
 (* =============================================================================
  * Storage
  * ============================================================================= *)
@@ -20,11 +17,12 @@ type fa2_operator = address
 type token_metadata = (string, bytes) map
 
 type storage = {
+    carbon_contract : address ; // address of the main carbon contract
     fa2_ledger : (fa2_owner * fa2_token_id , fa2_amt) big_map ;
-    operators : (fa2_operator, fa2_token_id) big_map;
+    operators : (fa2_operator * fa2_token_id, unit) big_map;
     metadata : (fa2_token_id, token_metadata) big_map;
 }
-
+// TODO: Record type to name owner?
 
 type result = (operation list) * storage
 
@@ -41,6 +39,8 @@ type update_operators =
 type mint = (fa2_owner * fa2_token_id * fa2_amt) list
 type burn = (fa2_owner * fa2_amt) list
 type get_metadata = fa2_token_id list
+type add_token = nat * token_metadata // token_id, metadata
+
 
 type entrypoint = 
 | Transfer of transfer 
@@ -49,6 +49,7 @@ type entrypoint =
 | Mint of mint
 | Burn of burn
 | Get_metadata of get_metadata
+| Add_token of add_token 
 
 
 (* =============================================================================
@@ -65,6 +66,8 @@ let error_FA2_RECEIVER_HOOK_FAILED = 6n // The receiver hook failed. This error 
 let error_FA2_SENDER_HOOK_FAILED = 7n // The sender failed. This error MUST be raised by the hook implementation
 let error_FA2_RECEIVER_HOOK_UNDEFINED = 8n // Receiver hook is required by the permission behavior, but is not implemented by a receiver contract
 let error_FA2_SENDER_HOOK_UNDEFINED = 9n // Sender hook is required by the permission behavior, but is not implemented by a sender contract
+let error_PERMISSIONS_DENIED = 10n
+let error_ID_ALREADY_IN_USE = 11n
 
 (* =============================================================================
  * Aux Functions
@@ -129,28 +132,23 @@ let balance_of (param : balance_of) (storage : storage) : result =
 let update_operators (param : update_operators) (storage : storage) : result = 
     match param with
     | Add_operator (fa2_owner, fa2_operator, fa2_token_id) ->
-        (match (Big_map.find_opt fa2_owner storage.operators) with
+        (match (Big_map.find_opt (fa2_owner,fa2_token_id) storage.operators) with
         | None -> (failwith error_FA2_NOT_OPERATOR : result)
-        | Some result_token_id ->
-            if result_token_id <> fa2_token_id then (failwith error_FA2_NOT_OPERATOR : result) else
-            let new_operators = Big_map.update fa2_operator (Some fa2_token_id) storage.operators in
+        | Some () ->
+            let new_operators = Big_map.update (fa2_operator, fa2_token_id) (Some ()) storage.operators in
             let storage = {storage with operators = new_operators} in 
             (([] : operation list), storage)
         )
     | Remove_operator (fa2_owner, fa2_operator, fa2_token_id) ->
-        (match (Big_map.find_opt fa2_owner storage.operators) with
+        (match (Big_map.find_opt (fa2_owner,fa2_token_id) storage.operators) with
         | None -> (failwith error_FA2_NOT_OPERATOR : result)
-        | Some result_token_id -> 
-            if result_token_id <> fa2_token_id then (failwith error_FA2_NOT_OPERATOR : result) else
-            (match (Big_map.find_opt fa2_operator storage.operators) with
+        | Some () -> 
+            (match (Big_map.find_opt (fa2_operator,fa2_token_id) storage.operators) with
             | None -> (([] : operation list), storage) // Nothing happens
-            | Some operator_token_id ->
-                if operator_token_id <> fa2_token_id 
-                then (([] : operation list), storage) 
-                else
-                    let new_operators = Big_map.update fa2_operator (None : fa2_token_id option) storage.operators in
-                    let storage = {storage with operators = new_operators} in 
-                    (([] : operation list), storage)
+            | Some () ->
+                let new_operators = Big_map.update (fa2_operator,fa2_token_id) (None : unit option) storage.operators in
+                let storage = {storage with operators = new_operators} in 
+                (([] : operation list), storage)
             )
         )
 
@@ -162,11 +160,10 @@ let rec mint_tokens (param, storage : mint * storage) : result =
     | hd :: tl -> 
         let (fa2_owner, fa2_token_id, fa2_amt) = hd in
         let txn_sender = Tezos.sender in
-        let has_privelege : unit = 
-            (match (Big_map.find_opt txn_sender storage.operators) with
+        let _has_privelege : unit = 
+            (match (Big_map.find_opt (txn_sender,fa2_token_id) storage.operators) with
             | None -> (failwith error_FA2_NOT_OPERATOR : unit)
-            | Some sender_with_privilege -> 
-                if sender_with_privilege <> fa2_token_id then (failwith error_FA2_NOT_OPERATOR : unit) else ()) in 
+            | Some () -> () ) in 
         let fa2_ownerbalance = 
             (match (Big_map.find_opt (fa2_owner, fa2_token_id) storage.fa2_ledger) with
             | None -> 0n
@@ -177,9 +174,36 @@ let rec mint_tokens (param, storage : mint * storage) : result =
         let storage = {storage with fa2_ledger = new_fa2_ledger} in 
         mint_tokens (tl, storage)
 
-let burn (_param : burn) (storage : storage) : result = (([] : operation list), storage) // TODO : Permissions TBD 
+let burn_tokens (_param : burn) (storage : storage) : result = (([] : operation list), storage) // TODO : Permissions TBD 
 
 let get_metadata (_param : get_metadata) (storage : storage) : result = (([] : operation list), storage) // TODO : Metadata details TBD
+
+let add_token (param : add_token) (storage : storage) : result = 
+    if (Tezos.sender <> storage.carbon_contract) then 
+        (failwith error_PERMISSIONS_DENIED : result) else 
+    // if the above passes, then Tezos.source is the project owner 
+    let owner = Tezos.source in 
+    let (id,meta) = param in 
+    
+    // update operators in storage
+    let new_operators = 
+        Big_map.update (owner, id) (Some ()) storage.operators in 
+    
+    // update metadata in storage
+    let _check_id_not_used = (
+        match Big_map.find_opt id storage.metadata with 
+        | None -> () 
+        | Some _ -> (failwith error_ID_ALREADY_IN_USE : unit)
+    ) in 
+    let new_metadata = 
+        Big_map.update id (Some meta) storage.metadata in 
+    
+    let updated_storage = { storage with 
+        operators = new_operators ;
+        metadata = new_metadata ;
+    } in 
+
+    (([] : operation list), updated_storage)
 
 (* =============================================================================
  * Main
@@ -196,6 +220,8 @@ let main ((entrypoint, storage) : entrypoint * storage) : result =
     | Mint param -> 
         mint_tokens (param, storage)
     | Burn param ->
-        burn param storage
+        burn_tokens param storage
     | Get_metadata param ->
         get_metadata param storage
+    | Add_token param ->
+        add_token param storage
