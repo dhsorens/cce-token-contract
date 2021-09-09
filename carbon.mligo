@@ -19,6 +19,7 @@ type project = {addr_project : address;}
 type create_project = (nat * token_metadata) list // (id, metadata) list
 type add_token = {project_addr : address; token_id : nat; token_metadata : token_metadata;}
 type update_whitelist = unit
+type burn_tokens = unit
 
 type storage = {
     admin : address ;
@@ -34,7 +35,7 @@ type entrypoint =
 | CreateProject of create_project 
 | AddToken of add_token 
 | UpdateWhitelist of update_whitelist
-
+| Burn of burn_tokens
 
 type result = (operation list) * storage
 
@@ -121,6 +122,10 @@ let update_whitelist (_param : update_whitelist) (storage : storage) : result =
         (failwith error_PERMISSIONS_DENIED : result) else 
     (([] : operation list), storage)
 
+let burn_tokens (_param : burn_tokens) (storage : storage) : result = 
+    (([] : operation list), storage)
+    
+
 (* =============================================================================
  * Main
  * ============================================================================= *)
@@ -133,3 +138,5 @@ let main (entrypoint, storage : entrypoint * storage) : result =
         add_token param storage 
     | UpdateWhitelist param -> 
         update_whitelist param storage
+    | Burn param ->
+        burn_tokens param storage
