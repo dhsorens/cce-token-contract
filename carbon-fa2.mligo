@@ -18,7 +18,6 @@ type token_metadata = (string, bytes) map
 
 type storage = {
     carbon_contract : address ; // address of the main carbon contract
-    burn_contract : address ; // the address of the burn contract 
     fa2_ledger : (fa2_owner * fa2_token_id , fa2_amt) big_map ;
     operators : (fa2_operator * fa2_token_id, unit) big_map;
     metadata : (fa2_token_id, token_metadata) big_map;
@@ -38,7 +37,7 @@ type update_operators =
     | Add_operator of fa2_owner * fa2_operator * fa2_token_id
     | Remove_operator of fa2_owner * fa2_operator * fa2_token_id
 type mint = (fa2_owner * fa2_token_id * fa2_amt) list
-type burn = (fa2_owner * fa2_amt) list
+type burn = (fa2_owner * fa2_token_id * fa2_amt) list
 type get_metadata = fa2_token_id list
 type add_token = nat * token_metadata // token_id, metadata
 
@@ -175,11 +174,12 @@ let rec mint_tokens (param, storage : mint * storage) : result =
         let storage = {storage with fa2_ledger = new_fa2_ledger} in 
         mint_tokens (tl, storage)
 
-let burn_tokens (_param : burn) (storage : storage) : result = (([] : operation list), storage)
-// TODO : Someone can burn their own tokens and they get a BURNT token in return
-//      ISSUES THE FOLLOWING:
-//        * they transfer it to the canonical burn address (or just deletes it?)
-//        * they call the burn entrypoint or something
+let burn_tokens (_param : burn) (storage : storage) : result = 
+    if Tezos.sender <> storage.carbon_contract then 
+        (failwith error_PERMISSIONS_DENIED : result) else 
+    
+
+    (([] : operation list), storage)
 
 let get_metadata (_param : get_metadata) (storage : storage) : result = (([] : operation list), storage) // TODO : Metadata details TBD
 
