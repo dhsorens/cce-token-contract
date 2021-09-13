@@ -3,7 +3,7 @@
 // TODO : Permissions for who can add projects -- do this with a "whitelist" datatype.
 //        That gives them the info and they have a privelege to exercise it if they want to.
 
-#include "carbon-token-fa2.mligo"
+#include "carbon-fa2.mligo"
 let  main_fa2 = main
 type storage_fa2 = storage 
 type entrypoint_fa2 = entrypoint 
@@ -15,15 +15,19 @@ type result_fa2 = result
  * ============================================================================= *)
 
 // TODO : what other project information will you need, e.g. for the AMM?
+type project_owner = address
 type project = {addr_project : address;}
 type create_project = (nat * token_metadata) list // (id, metadata) list
 type add_token = {project_addr : address; token_id : nat; token_metadata : token_metadata;}
+
 type update_whitelist = unit
+type carbon_to_life = project * nat * nat // project, token_id, amt_to_burn
 
 type storage = {
     admin : address ;
-    projects : (address, project) big_map ; // owner -> project
+    projects : (project_owner, project) big_map ; // owner -> project
     // whitelist : (address, create_project) big_map ; // whitelist to be able to create a new project
+    // life_addr : address ; // address of the LIFE contract
 }
 
 (* =============================================================================
@@ -34,6 +38,7 @@ type entrypoint =
 | CreateProject of create_project 
 | AddToken of add_token 
 | UpdateWhitelist of update_whitelist
+| CarbonToLife of carbon_to_life 
 
 
 type result = (operation list) * storage
@@ -44,6 +49,7 @@ type result = (operation list) * storage
 
 let error_PROJECT_NOT_FOUND = 0n
 let error_PERMISSIONS_DENIED = 1n
+let error_COULD_NOT_GET_ENTRYPOINT = 2n
 
 (* =============================================================================
  * Aux Functions
@@ -107,7 +113,7 @@ let add_token (param : add_token) (storage : storage) : result =
     ) in 
     let entrypoint_addToken = (
         match (Tezos.get_entrypoint_opt "%add_token" addr_fa2 : (nat * token_metadata) contract option) with 
-        | None -> (failwith error_PROJECT_NOT_FOUND : (nat * token_metadata) contract)
+        | None -> (failwith error_COULD_NOT_GET_ENTRYPOINT : (nat * token_metadata) contract)
         | Some e -> e
     ) in 
 
@@ -120,6 +126,38 @@ let update_whitelist (_param : update_whitelist) (storage : storage) : result =
     if Tezos.sender <> storage.admin then 
         (failwith error_PERMISSIONS_DENIED : result) else 
     (([] : operation list), storage)
+
+let carbon_to_life (param : carbon_to_life) (storage : storage) : result = 
+    let (proj, token_id, amt_to_burn) = param in 
+    let owner = Tezos.source in 
+    
+    // burn the fa2
+    let addr_proj = proj.addr_project in 
+    let txndata_burn : (fa2_owner * fa2_token_id * fa2_amt) list = 
+        [ (owner, token_id, amt_to_burn) ; ]
+    in
+    let entrypoint_burn = (
+        match (Tezos.get_entrypoint_opt "%burn" addr_proj : (fa2_owner * fa2_token_id * fa2_amt) list contract option) with 
+        | None -> (failwith error_COULD_NOT_GET_ENTRYPOINT : (fa2_owner * fa2_token_id * fa2_amt) list contract)
+        | Some c -> c
+    ) in 
+    let op_burn_fa2 = Tezos.transaction txndata_burn 0tez entrypoint_burn in 
+
+    // mint the LIFE token
+    (*
+    let amt_to_mint = <calculate amt to mint based on exchange rate with TEZ>
+    let txndata_mint : (fa2_owner * fa2_token_id * fa2_amt) list = 
+        [ (owner, 0n, amt_to_mint) ; ] // the LIFE token is fungible
+    in
+    let entrypoint_mint : (fa2_owner * fa2_token_id * fa2_amt) list contract = (
+        match (Tezos.get_entrypoint_opt "%mint" storage.life_addr : (fa2_owner * fa2_token_id * fa2_amt) list contract option) with 
+        | None -> (failwith error_COULD_NOT_GET_ENTRYPOINT)
+        | Some c -> c
+    ) in 
+    let op_mint_LIFE = Tezos.transaction txndata_mint 0tez entrypoint_mint in 
+    *)
+
+    ([ op_burn_fa2 ; (* op_mint_LIFE ; *) ], storage)
 
 (* =============================================================================
  * Main
