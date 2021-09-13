@@ -10,3 +10,12 @@ Medium term:
 Long term:
 * AMM attached to the CCE Carbon Token contract to price the asset and put it on the market
 * Tokenomics, supply mechanisms, burn mechanisms
+
+
+## ROYALTIES
+
+There should be royalties collected for 
+
+## TREASURY 
+
+There should be a governance-token controlled treasury that funds ... something.
