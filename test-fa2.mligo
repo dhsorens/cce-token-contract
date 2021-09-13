@@ -2,32 +2,37 @@
  * SRC: FA2 Carbon Contract 
  * ============================================================================ *)
 
-#include "carbon-token-fa2.mligo"
+#include "carbon.mligo"
+let  main_carbon = main
+type storage_carbon = storage 
+type entrypoint_carbon = entrypoint 
+type result_carbon = result
+
+#include "carbon-fa2.mligo"
 let  main_fa2 = main
 type storage_fa2 = storage 
 type entrypoint_fa2 = entrypoint 
 type result_fa2 = result
 
-#include "carbon-token.mligo"
-let  main_touch = main
-type storage_touch = storage 
-type entrypoint_touch = entrypoint 
-type result_touch = result
+#include "carbon-amm.mligo"
+let  main_amm = main
+type storage_amm = storage 
+type entrypoint_amm = entrypoint 
+type result_amm = result
+
+#include "carbon-life.mligo"
+let  main_life = main
+type storage_life = storage 
+type entrypoint_life = entrypoint 
+type result_life = result
+
 
 
 (* ============================================================================
  * Some Proxy Contracts
  * ============================================================================ *)
 
-// Get Balance Bot (a smart contract that can be originated to query balance)
-type get_balance_storage    = nat 
-type get_balance_entrypoint = (fa2_owner * fa2_token_id * fa2_amt) list
-type get_balance_result     = (operation list) * get_balance_storage
-let get_bal (param, storage : get_balance_entrypoint * get_balance_storage) : get_balance_result = 
-    match param with 
-    | [] -> (([] : operation list ), storage)
-    | txn :: txns -> 
-        (let (ownr, id, amt) = txn in (([] : operation list ), amt))
+
 
 (* ============================================================================
  * Generic Setup Function
@@ -327,58 +332,3 @@ let test_metadata_empty = ()
 
 let test_metadata_mutation = () 
 
-
-
-(* ============================================================================
- * Test Touch Functionality 
- * ============================================================================ *)
-
-// initiates an instance with alice, bob, and an operator
-let init_touch_contracts (alice_bal : nat) (bob_bal : nat) = 
-    // generate some implicit addresses
-    let reset_state_unit = Test.reset_state 4n ([] : nat list) in
-    let (addr_alice, addr_bob, addr_operator, addr_dummy) = 
-        (Test.nth_bootstrap_account 0, Test.nth_bootstrap_account 1, 
-         Test.nth_bootstrap_account 2, Test.nth_bootstrap_account 3) in 
-
-    // initiate touch contract 
-    let init_touch_storage = {
-        addr_fa2 = ("tz1Ke2h7sDdakHJQh8WX4Z372du1KChsksyU" : address);
-    } in 
-    let (typed_addr_touch, pgm_touch, size_touch) = 
-        Test.originate main_touch init_touch_storage 0tez in
-    let addr_touch = Tezos.address (Test.to_contract typed_addr_touch) in 
-
-    // initiate contract; both alice and bob have 1000n tokens
-    let init_fa2_storage = {
-        fa2_ledger = ( Big_map.literal [ ((addr_alice, 0n), alice_bal) ; ((addr_bob, 0n), bob_bal) ; ] );
-        operators  = ( Big_map.literal [ (addr_touch, 0n); ] ) ; 
-        metadata   = ( Big_map.empty : (fa2_token_id, token_metadata) big_map ) ;
-    } in
-    let (typed_addr_fa2, pgm_fa2, size_fa2) = 
-        Test.originate main_fa2 init_fa2_storage 0tez in
-    let addr_fa2 = Tezos.address (Test.to_contract typed_addr_fa2) in 
-    
-    // change addr_fa2 
-    let txndata_fa2 = addr_fa2 in 
-    let entrypoint_fa2 = (Test.to_entrypoint "updateAddress" typed_addr_touch : address contract) in 
-    let txn_fa2 =
-        Test.transfer_to_contract_exn entrypoint_fa2 txndata_fa2 0tez in 
-
-    (addr_alice, addr_bob, addr_operator, addr_dummy, typed_addr_fa2, typed_addr_touch)
-
-
-let test_touch = 
-    // originate fa2 contract 
-    let alice_bal = 0n in 
-    let bob_bal   = 0n in 
-    let amt_to_mint = 100n in 
-    let (addr_alice, addr_bob, addr_operator, addr_dummy, typed_addr_fa2, typed_addr_touch) = 
-        init_touch_contracts alice_bal bob_bal in 
-    
-    // touch the touch contract 
-    let txndata_touch = (addr_alice, 0n, 100n) in // mint 100n of token 0n for alice 
-    let entrypoint_touch = (Test.to_entrypoint "touch" typed_addr_touch : mint_data contract) in 
-    let txn_touch = 
-        Test.transfer_to_contract_exn entrypoint_touch txndata_touch 0tez in 
-    ()
