@@ -47,4 +47,4 @@ There are four primary contracts in this project. These are:
 1. `carbon.mligo` : the main, controller contract 
 1. `carbon-fa2.mligo` : the contract that manages a project, including a project's different tokens, including NFTs
 1. `carbon-amm.mligo` : the contract that manages the carbon token market 
-1. `life.mligo` : the contract that manages the LIFE token fa2 contract
+1. `carbon-life.mligo` : the contract that manages the LIFE token fa2 contract
