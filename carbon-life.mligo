@@ -1,3 +1,3 @@
 // An FA2 contract that manages the LIFE token
-// Minting has special features that have to be activated by the carbon
-// contract
+// Minting can only be done by the carbon contract
+// The exchange rate is dependent on the AMM exchange rate
