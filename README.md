@@ -39,3 +39,12 @@ Total supply should be capped by the Carbon contract to keep the token holders f
 ## FA2 Functionality
 
 Users and token holders wishing to manage their tokens, i.e. with the `Transfer` or `Balance_of` functions, can query the project's FA2 contract and it functions as normal.
+
+
+# Contract Structures 
+
+There are four primary contracts in this project. These are:
+1. `carbon.mligo` : the main, controller contract 
+1. `carbon-fa2.mligo` : the contract that manages a project, including a project's different tokens, including NFTs
+1. `carbon-amm.mligo` : the contract that manages the carbon token market 
+1. `life.mligo` : the contract that manages the LIFE token fa2 contract
