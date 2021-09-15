@@ -1,13 +1,13 @@
 (* ============================================================================
  * SRC: FA2 Carbon Contract 
  * ============================================================================ *)
-(*
+
 #include "../carbon.mligo"
 let  main_carbon = main
 type storage_carbon = storage 
 type entrypoint_carbon = entrypoint 
 type result_carbon = result
-*)
+
 #include "../carbon-fa2.mligo"
 let  main_fa2 = main
 type storage_fa2 = storage 
@@ -31,11 +31,11 @@ let get_bal (input, storage : get_balance_entrypoint * get_bal_storage) : get_ba
     )
 
 (* ============================================================================
- * Generic Setup Function
+ * Generic FA2 Setup Function
  * ============================================================================ *)
 
 // initiates an instance with alice, bob, and an operator
-let init_contracts (alice_bal : nat) (bob_bal : nat) = 
+let init_fa2_contract (alice_bal : nat) (bob_bal : nat) = 
     // generate some implicit addresses
     let reset_state_unit = Test.reset_state 4n ([] : tez list) in
     let (addr_alice, addr_bob, addr_operator, addr_dummy) = 
@@ -44,7 +44,7 @@ let init_contracts (alice_bal : nat) (bob_bal : nat) =
 
     // initiate contract; both alice and bob have 1000n tokens
     let init_fa2_storage = {
-        carbon_contract = ("tz1Ke2h7sDdakHJQh8WX4Z372du1KChsksyU" : address);
+        carbon_contract = addr_alice ; // for testing purposes only
         fa2_ledger = ( Big_map.literal [ ((addr_alice, 0n), alice_bal) ; ((addr_bob, 0n), bob_bal) ; ] );
         operators  = ( Big_map.literal [ ((addr_operator, 0n), ()); ] ) ; 
         metadata   = ( Big_map.empty : (fa2_token_id, token_metadata) big_map ) ;
@@ -58,7 +58,7 @@ let test_verify_setup =
     let alice_bal = 100n in 
     let bob_bal   = 100n in 
     let (addr_alice, addr_bob, addr_operator, addr_dummy, typed_addr_fa2) = 
-        init_contracts alice_bal bob_bal in
+        init_fa2_contract alice_bal bob_bal in
 
     // assert the storage (balances) are what they should be 
     let (typed_addr_get_bal, pgm_get_bal, size_get_bal) = Test.originate get_bal 0n 0tez in 
@@ -88,7 +88,7 @@ let test_transfer =
     let bob_bal   = 1000n in 
     let transfer_amt = 500n in 
     let (addr_alice, addr_bob, addr_operator, addr_dummy, typed_addr_fa2) = 
-        init_contracts alice_bal bob_bal in
+        init_fa2_contract alice_bal bob_bal in
     
     // transfer 500n from alice to bob 
     let alice_source = Test.set_source addr_alice in 
@@ -121,7 +121,7 @@ let test_transfer_empty =
     let alice_bal = 0n in 
     let bob_bal = 0n in 
     let (addr_alice, addr_bob, addr_operator, addr_dummy, typed_addr_fa2) = 
-        init_contracts alice_bal bob_bal in
+        init_fa2_contract alice_bal bob_bal in
     
     // call the transfer entrypoint with an empty list from alice to bob 
     let alice_source = Test.set_source addr_alice in 
@@ -161,7 +161,7 @@ let test_operator_add =
     let alice_bal = 100n in 
     let bob_bal = 100n in 
     let (addr_alice, addr_bob, addr_operator, addr_dummy, typed_addr_fa2) = 
-        init_contracts alice_bal bob_bal in
+        init_fa2_contract alice_bal bob_bal in
 
     // add dummy_address as an operator 
     let operator_src = Test.set_source addr_operator in 
@@ -180,7 +180,7 @@ let test_operator_remove =
     let alice_bal = 100n in 
     let bob_bal = 100n in 
     let (addr_alice, addr_bob, addr_operator, addr_dummy, typed_addr_fa2) = 
-        init_contracts alice_bal bob_bal in
+        init_fa2_contract alice_bal bob_bal in
 
     // add addr_dummy as an operator 
     let operator_src = Test.set_source addr_operator in 
@@ -220,7 +220,7 @@ let test_balance_empty =
     let alice_bal = 100n in 
     let bob_bal   = 100n in 
     let (addr_alice, addr_bob, addr_operator, addr_dummy, typed_addr_fa2) = 
-        init_contracts alice_bal bob_bal in
+        init_fa2_contract alice_bal bob_bal in
 
     // assert the storage (balances) are what they should be 
     let (typed_addr_get_bal, pgm_get_bal, size_get_bal) = Test.originate get_bal 0n 0tez in 
@@ -243,7 +243,7 @@ let test_mint =
     let bob_bal   = 0n in 
     let amt_to_mint = 100n in 
     let (addr_alice, addr_bob, addr_operator, addr_dummy, typed_addr_fa2) = 
-        init_contracts alice_bal bob_bal in
+        init_fa2_contract alice_bal bob_bal in
      
     // mint 100n tokens (of id = 0n) for alice 
     let operator_src = Test.set_source addr_operator in 
@@ -266,7 +266,7 @@ let test_mint_empty =
     let alice_bal = 0n in 
     let bob_bal   = 0n in 
     let (addr_alice, addr_bob, addr_operator, addr_dummy, typed_addr_fa2) = 
-        init_contracts alice_bal bob_bal in
+        init_fa2_contract alice_bal bob_bal in
 
     // mint nothing (the empty list)
     let operator_src = Test.set_source addr_operator in 
@@ -282,7 +282,7 @@ let test_mint_non_operator =
     let bob_bal   = 0n in 
     let amt_to_mint = 100n in 
     let (addr_alice, addr_bob, addr_operator, addr_dummy, typed_addr_fa2) = 
-        init_contracts alice_bal bob_bal in
+        init_fa2_contract alice_bal bob_bal in
 
     // mint 100n tokens (of id = 0n) for alice 
     //let operator_src = Test.set_source addr_operator in 
@@ -307,16 +307,78 @@ let test_mint_mutation = ()
 (* ============================================================================
  * Test Burn Entrypoint 
  * ============================================================================ *)
-let test_burn = ()
+
+// NOTE: TO GET THESE TO PASS ALICE NEEDS TO BE THE "CARBON CONTRACT" ADDRESS
+
+// alice burns 500n tokens
+let test_burn =
+    // contract setup 
+    let alice_bal = 1000n in 
+    let bob_bal   = 1000n in 
+    let burn_amt = 500n in 
+    let (addr_alice, addr_bob, addr_operator, addr_dummy, typed_addr_fa2) = 
+        init_fa2_contract alice_bal bob_bal in
+    let addr_burn = ("tz1Ke2h7sDdakHJQh8WX4Z372du1KChsksyU" : address) in
+    
+    // burn 500n 
+    let alice_source = Test.set_source addr_alice in 
+    let burn_entrypoint = 
+        ((Test.to_entrypoint "burn" typed_addr_fa2) : burn contract) in 
+    let txndata_burn : burn = [ (addr_alice, 0n, burn_amt); ] in
+    let alice_burn_500n = 
+        Test.transfer_to_contract_exn burn_entrypoint txndata_burn 0tez in 
+
+    // query balances 
+    let (typed_addr_get_bal, pgm_get_bal, size_get_bal) = Test.originate get_bal 0n 0tez in 
+    let entrypoint_balance_of : balance_of contract = (Test.to_entrypoint "balance_of" typed_addr_fa2) in
+    let addr_get_bal : get_balance_entrypoint contract = (Test.to_contract typed_addr_get_bal) in
+    // alice's balance
+    let alice_bal_query : balance_of = ([ (addr_alice, 0n); ], addr_get_bal) in 
+    let get_balance_alice = Test.transfer_to_contract_exn entrypoint_balance_of alice_bal_query 0tez in
+    let alice_balance = Test.get_storage typed_addr_get_bal in 
+    // burn address's balance
+    let burn_bal_query : balance_of = ([ (addr_burn, 0n); ], addr_get_bal) in 
+    let get_balance_burn = Test.transfer_to_contract_exn entrypoint_balance_of burn_bal_query 0tez in
+    let burn_balance = Test.get_storage typed_addr_get_bal in 
+    
+    // test that alice_balance = 500n and bob_balance = 1500n 
+    (assert (alice_balance = abs(alice_bal - burn_amt)), assert (burn_balance = burn_amt))
+
+(* Make sure an empty list of transfers behaves as expected *)
+let test_burn_empty = 
+    // contract setup 
+    let alice_bal = 0n in 
+    let bob_bal = 0n in 
+    let (addr_alice, addr_bob, addr_operator, addr_dummy, typed_addr_fa2) = 
+        init_fa2_contract alice_bal bob_bal in
+    let addr_burn = ("tz1Ke2h7sDdakHJQh8WX4Z372du1KChsksyU" : address) in
+    
+    // call the transfer entrypoint with an empty list from alice to bob 
+    let alice_source = Test.set_source addr_alice in 
+    let burn_entrypoint = 
+        ((Test.to_entrypoint "burn" typed_addr_fa2) : burn contract) in 
+    let txndata_burn : burn = ([] : (fa2_to * fa2_token_id * fa2_amt) list) in
+    let alice_burn_nothing = 
+        Test.transfer_to_contract_exn burn_entrypoint txndata_burn 0tez in 
+
+    // query balances 
+    let (typed_addr_get_bal, pgm_get_bal, size_get_bal) = Test.originate get_bal 0n 0tez in 
+    let entrypoint_balance_of : balance_of contract = (Test.to_entrypoint "balance_of" typed_addr_fa2) in
+    let addr_get_bal : get_balance_entrypoint contract = (Test.to_contract typed_addr_get_bal) in
+    // alice's balance
+    let alice_bal_query : balance_of = ([ (addr_alice, 0n); ], addr_get_bal) in 
+    let get_balance_alice = Test.transfer_to_contract_exn entrypoint_balance_of alice_bal_query 0tez in
+    let alice_balance = Test.get_storage typed_addr_get_bal in 
+    // burn address's balance
+    let burn_bal_query : balance_of = ([ (addr_burn, 0n); ], addr_get_bal) in 
+    let get_balance_burn = Test.transfer_to_contract_exn entrypoint_balance_of burn_bal_query 0tez in
+    let burn_balance = Test.get_storage typed_addr_get_bal in 
+    
+    // test that alice_balance = 500n and bob_balance = 1500n 
+    (assert (alice_balance = alice_bal), assert (burn_balance = 0n))
 
 
-let test_burn_empty = () 
-    // Make sure the empty list behaves as expected 
-
-
-
-let test_burn_mutation = () 
-
+let test_burn_mutation = ()
 
 
 (* ============================================================================
