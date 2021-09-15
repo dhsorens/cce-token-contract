@@ -10,7 +10,9 @@
  * ============================================================================= *)
 
 type project_owner = address
-type project = {addr_project : address;}
+type project = {
+    addr_project : address;
+}
 
 type create_project = (nat * token_metadata) list // (id, metadata) list
 type bury_carbon = (project * nat * nat) list // project, token_id, amt_to_burn
