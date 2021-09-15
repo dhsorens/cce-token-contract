@@ -65,12 +65,14 @@ let param_to_burn (proj,token_id,amt_to_burn : project * nat * nat) : operation 
  * ============================================================================= *)
 
 let create_project (param : create_project) (storage : storage) : result = 
+    let owner = Tezos.source in 
+    
     // construct the initial storage for your project's FA2 contract
     let fa2_ledger = (Big_map.empty : (fa2_owner * fa2_token_id , fa2_amt) big_map) in 
     let operators = // the project owner is operator for all her tokens 
         List.fold_left 
         (fun (acc, (id, _meta) : ((fa2_operator * fa2_token_id, unit) big_map) * (nat * token_metadata) ) 
-            -> Big_map.update (Tezos.sender, id) (Some () : unit option) acc)
+            -> Big_map.update (owner, id) (Some () : unit option) acc)
         (Big_map.empty : (fa2_operator * fa2_token_id, unit) big_map)
         param
     in 
@@ -94,7 +96,7 @@ let create_project (param : create_project) (storage : storage) : result =
 
     // update the local storage
     let updated_storage = { storage with 
-        projects = Big_map.update Tezos.sender (Some { addr_project = addr_new_fa2; } : project option) storage.projects ;
+        projects = Big_map.update owner (Some { addr_project = addr_new_fa2; } : project option) storage.projects ;
     } in 
 
     // final state
