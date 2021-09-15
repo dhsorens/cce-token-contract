@@ -172,9 +172,9 @@ let rec mint_tokens (param, storage : mint * storage) : result =
         let storage = {storage with fa2_ledger = new_fa2_ledger} in 
         mint_tokens (tl, storage)
 
-let burn_tokens (param : burn) (storage : storage) : result = 
+let burn_tokens (param : burn) (storage : storage) : transfer = 
     if Tezos.sender <> storage.carbon_contract then 
-        (failwith error_PERMISSIONS_DENIED : result) else 
+        (failwith error_PERMISSIONS_DENIED : transfer) else 
 
     let burn_addr = ("tz1Ke2h7sDdakHJQh8WX4Z372du1KChsksyU" : address) in 
     let addr_from = Tezos.source in 
@@ -190,10 +190,7 @@ let burn_tokens (param : burn) (storage : storage) : result =
             param
         )
     in 
-    let burn_op = 
-        Tezos.transaction txndata_burn 0tez (Tezos.self "%transfer" : transfer contract) in
-
-    ([burn_op], storage)
+    txndata_burn
 
 let get_metadata (_param : get_metadata) (storage : storage) : result = (([] : operation list), storage) // TODO : Metadata details TBD
 
@@ -201,7 +198,7 @@ let get_metadata (_param : get_metadata) (storage : storage) : result = (([] : o
  * Main
  * ============================================================================= *)
 
-let main ((entrypoint, storage) : entrypoint * storage) : result =
+let rec main ((entrypoint, storage) : entrypoint * storage) : result =
     match entrypoint with
     | Transfer param ->
         transfer (param, storage)
@@ -212,6 +209,6 @@ let main ((entrypoint, storage) : entrypoint * storage) : result =
     | Mint param -> 
         mint_tokens (param, storage)
     | Burn param ->
-        burn_tokens param storage
+        main (Transfer( burn_tokens param storage ), storage)
     | Get_metadata param ->
         get_metadata param storage
