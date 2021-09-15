@@ -1,1 +1,0 @@
-// an AMM to keep the price of the LIFE token stably tied to tez, for example

@@ -1,1 +1,0 @@
-// This is the contract for the governance token
