@@ -39,7 +39,6 @@ type update_operators =
 type mint = (fa2_owner * fa2_token_id * fa2_amt) list
 type burn = (fa2_owner * fa2_token_id * fa2_amt) list
 type get_metadata = fa2_token_id list
-type add_token = nat * token_metadata // token_id, metadata
 
 
 type entrypoint = 
@@ -49,7 +48,6 @@ type entrypoint =
 | Mint of mint
 | Burn of burn
 | Get_metadata of get_metadata
-| Add_token of add_token 
 
 
 (* =============================================================================
@@ -174,41 +172,30 @@ let rec mint_tokens (param, storage : mint * storage) : result =
         let storage = {storage with fa2_ledger = new_fa2_ledger} in 
         mint_tokens (tl, storage)
 
-let burn_tokens (_param : burn) (storage : storage) : result = 
+let burn_tokens (param : burn) (storage : storage) : result = 
     if Tezos.sender <> storage.carbon_contract then 
         (failwith error_PERMISSIONS_DENIED : result) else 
-    
 
-    (([] : operation list), storage)
+    let burn_addr = ("tz1Ke2h7sDdakHJQh8WX4Z372du1KChsksyU" : address) in 
+    let addr_from = Tezos.source in 
+
+    // transfer the tokens to the burn address
+    let txndata_burn : transfer = 
+        (
+            addr_from,
+            List.map
+            (fun (owner,id,amt : address * nat * nat) -> 
+                let () = assert (owner = addr_from) in 
+                (burn_addr, id, amt) )
+            param
+        )
+    in 
+    let burn_op = 
+        Tezos.transaction txndata_burn 0tez (Tezos.self "%transfer" : transfer contract) in
+
+    ([burn_op], storage)
 
 let get_metadata (_param : get_metadata) (storage : storage) : result = (([] : operation list), storage) // TODO : Metadata details TBD
-
-let add_token (param : add_token) (storage : storage) : result = 
-    if (Tezos.sender <> storage.carbon_contract) then 
-        (failwith error_PERMISSIONS_DENIED : result) else 
-    // if the above passes, then Tezos.source is the project owner 
-    let owner = Tezos.source in 
-    let (id,meta) = param in 
-    
-    // update operators in storage
-    let new_operators = 
-        Big_map.update (owner, id) (Some ()) storage.operators in 
-    
-    // update metadata in storage
-    let _check_id_not_used = (
-        match Big_map.find_opt id storage.metadata with 
-        | None -> () 
-        | Some _ -> (failwith error_ID_ALREADY_IN_USE : unit)
-    ) in 
-    let new_metadata = 
-        Big_map.update id (Some meta) storage.metadata in 
-    
-    let updated_storage = { storage with 
-        operators = new_operators ;
-        metadata = new_metadata ;
-    } in 
-
-    (([] : operation list), updated_storage)
 
 (* =============================================================================
  * Main
@@ -228,5 +215,3 @@ let main ((entrypoint, storage) : entrypoint * storage) : result =
         burn_tokens param storage
     | Get_metadata param ->
         get_metadata param storage
-    | Add_token param ->
-        add_token param storage

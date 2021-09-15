@@ -1,38 +1,34 @@
 (* ============================================================================
  * SRC: FA2 Carbon Contract 
  * ============================================================================ *)
-
+(*
 #include "../carbon.mligo"
 let  main_carbon = main
 type storage_carbon = storage 
 type entrypoint_carbon = entrypoint 
 type result_carbon = result
-
+*)
 #include "../carbon-fa2.mligo"
 let  main_fa2 = main
 type storage_fa2 = storage 
 type entrypoint_fa2 = entrypoint 
 type result_fa2 = result
 
-#include "../carbon-amm.mligo"
-let  main_amm = main
-type storage_amm = storage 
-type entrypoint_amm = entrypoint 
-type result_amm = result
-
-#include "../carbon-life.mligo"
-let  main_life = main
-type storage_life = storage 
-type entrypoint_life = entrypoint 
-type result_life = result
-
-
 
 (* ============================================================================
  * Some Proxy Contracts
  * ============================================================================ *)
 
-
+type get_bal_storage = fa2_amt
+type get_balance = (fa2_owner * fa2_token_id * fa2_amt) list
+type get_balance_entrypoint = (fa2_owner * fa2_token_id * fa2_amt) list
+type get_bal_result = (operation list) * get_bal_storage
+let get_bal (input, storage : get_balance_entrypoint * get_bal_storage) : get_bal_result = 
+    ([] : operation list),
+    (match input with 
+        | (owner,id,amt) :: xs -> amt
+        | [] -> 0n
+    )
 
 (* ============================================================================
  * Generic Setup Function
@@ -41,15 +37,16 @@ type result_life = result
 // initiates an instance with alice, bob, and an operator
 let init_contracts (alice_bal : nat) (bob_bal : nat) = 
     // generate some implicit addresses
-    let reset_state_unit = Test.reset_state 4n ([] : nat list) in
+    let reset_state_unit = Test.reset_state 4n ([] : tez list) in
     let (addr_alice, addr_bob, addr_operator, addr_dummy) = 
         (Test.nth_bootstrap_account 0, Test.nth_bootstrap_account 1, 
          Test.nth_bootstrap_account 2, Test.nth_bootstrap_account 3) in 
 
     // initiate contract; both alice and bob have 1000n tokens
     let init_fa2_storage = {
+        carbon_contract = ("tz1Ke2h7sDdakHJQh8WX4Z372du1KChsksyU" : address);
         fa2_ledger = ( Big_map.literal [ ((addr_alice, 0n), alice_bal) ; ((addr_bob, 0n), bob_bal) ; ] );
-        operators  = ( Big_map.literal [ (addr_operator, 0n); ] ) ; 
+        operators  = ( Big_map.literal [ ((addr_operator, 0n), ()); ] ) ; 
         metadata   = ( Big_map.empty : (fa2_token_id, token_metadata) big_map ) ;
     } in
     let (typed_addr_fa2, pgm_fa2, size_fa2) = 
@@ -174,8 +171,9 @@ let test_operator_add =
     let txn_add_operator = Test.transfer_to_contract_exn entrypoint_add_operator txndata_add 0tez in
 
     // verify addr_dummy is now an operator of token with id = 0n
+    let dummy_query = (addr_dummy, 0n) in
     let fa2_storage = Test.get_storage typed_addr_fa2 in 
-    assert ((Big_map.find_opt addr_dummy fa2_storage.operators) = (Some 0n))
+    assert ((Big_map.find_opt dummy_query fa2_storage.operators) = (Some ()))
 
 let test_operator_remove = 
     // contract setup 
@@ -199,10 +197,12 @@ let test_operator_remove =
     let txn_remove_operator = Test.transfer_to_contract_exn entrypoint_remove_operator txndata_remove 0tez in 
 
     // assert that addr_dummy is an operator 
+    let dummy_query = (addr_dummy, 0n) in 
+    let operator_query = (addr_operator, 0n) in 
     let fa2_storage = Test.get_storage typed_addr_fa2 in 
     (
-        assert ((Big_map.find_opt addr_dummy fa2_storage.operators) = (Some 0n)),
-        assert ((Big_map.find_opt addr_operator fa2_storage.operators) = (None : nat option))
+        assert ((Big_map.find_opt dummy_query fa2_storage.operators) = (Some ())),
+        assert ((Big_map.find_opt operator_query fa2_storage.operators) = (None : unit option))
     )
 
 let test_operator_mutation = () 
