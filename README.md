@@ -19,14 +19,14 @@ TODO :
 The Carbon contract should grant permissions to let projects add zones (new token ids) or create new projects. This will be done via a whitelist, a datatype which keeps track of who has permissions. The company will update this whitelist when someone gets certified, and then that person will be able to query the Carbon contract to either add a token id (zone) to their existing project (FA2) contract or to originate a project.
 
 As it stands, each address can only be associated with one contract.
-
+<!-- 
 ## Add a New Token (Zone)
 
 As the code stands, to add a new token, you provide the new token id and metadata to the Carbon contract. If you already have a project (existing FA2 contract), it will automatically add that token for you and you will have powers to mint.
 
 TODO :
 update permissions as described in the section above.
-
+-->
 
 ## Mint
 
@@ -43,8 +43,16 @@ Users and token holders wishing to manage their tokens, i.e. with the `Transfer`
 
 # Contract Structures 
 
+There are currently two primary contracts in this project. These are:
+1. `carbon.mligo` : the main, controller contract. This contract handles burning and project creation. <!-- will eventually handle add token -->
+1. `carbon-fa2.mligo` : the contract that represents a projects and manages the project's different tokens, including NFTs.
+
+The other two contracts, `carbon-fa2-types.mligo` and `deploy-carbon-fa2.mligo` are auxiliary to `carbon.mligo`, in particular in spawning up an FA2 contract as part of the `%createProject` entrypoint.
+
+<!---
 There are four primary contracts in this project. These are:
 1. `carbon.mligo` : the main, controller contract 
 1. `carbon-fa2.mligo` : the contract that manages a project, including a project's different tokens, including NFTs
 1. `carbon-amm.mligo` : the contract that manages the carbon token market 
 1. `carbon-life.mligo` : the contract that manages the LIFE token fa2 contract
+--->
