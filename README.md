@@ -6,7 +6,7 @@ This repository is for the FA2 contract that represents the carbon token develop
 
 The main, "admin" contract is `carbon.mligo`. Through this contract you can:
 1. Create a project 
-1. Add a new token (zone) to your project 
+<!--1. Add a new token (zone) to your project -->
 1. Update permissions
 
 The token contract represents a project. It has powers to mint tokens corresponding to the project's different zones. It is also a generic FA2 contract, so it has standard entrypoints such as `Transfer`, `Balance_of`, etc. This contract manages the project's tokens as well as some admin work that only the project owner has permissions to.
