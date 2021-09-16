@@ -9,8 +9,8 @@ type token_metadata = (string, bytes) map
 
 type storage = {
     carbon_contract : address ; // address of the main carbon contract
-    fa2_ledger : (fa2_owner * fa2_token_id , fa2_amt) big_map ;
-    operators : (fa2_operator * fa2_token_id, unit) big_map;
+    ledger : (fa2_owner * fa2_token_id , fa2_amt) big_map ;
+    operators : (fa2_owner * fa2_operator * fa2_token_id, unit) big_map;
     metadata : (fa2_token_id, token_metadata) big_map;
 }
 // TODO: Record type to name owner?

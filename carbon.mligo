@@ -15,6 +15,7 @@ type project = {
 }
 
 type create_project = (nat * token_metadata) list // (id, metadata) list
+type mint_tokens = (address * nat * nat) list // (owner * token_id * amt) list
 type bury_carbon = (project * nat * nat) list // project, token_id, amt_to_burn
 
 type storage = {
@@ -28,6 +29,7 @@ type storage = {
 
 type entrypoint = 
 | CreateProject of create_project 
+| MintTokens of mint_tokens
 | BuryCarbon of bury_carbon 
 
 type result = (operation list) * storage
@@ -70,14 +72,8 @@ let create_project (param : create_project) (storage : storage) : result =
     let owner = Tezos.source in 
     
     // construct the initial storage for your project's FA2 contract
-    let fa2_ledger = (Big_map.empty : (fa2_owner * fa2_token_id , fa2_amt) big_map) in 
-    let operators = // the project owner is operator for all her tokens 
-        List.fold_left 
-        (fun (acc, (id, _meta) : ((fa2_operator * fa2_token_id, unit) big_map) * (nat * token_metadata) ) 
-            -> Big_map.update (owner, id) (Some () : unit option) acc)
-        (Big_map.empty : (fa2_operator * fa2_token_id, unit) big_map)
-        param
-    in 
+    let ledger = (Big_map.empty : (fa2_owner * fa2_token_id , fa2_amt) big_map) in 
+    let operators = (Big_map.empty : (fa2_owner * fa2_operator * fa2_token_id, unit) big_map) in  
     let metadata = 
         List.fold_left 
         (fun (acc, (id, meta) : ((fa2_token_id, token_metadata) big_map) * (nat * token_metadata) ) 
@@ -89,7 +85,7 @@ let create_project (param : create_project) (storage : storage) : result =
     // initiate an FA2 contract w/permissions given to project contract
     let fa2_init_storage : storage_fa2 = {
         carbon_contract = Tezos.self_address ;
-        fa2_ledger = fa2_ledger ;
+        ledger = ledger ;
         operators = operators ;
         metadata = metadata ;
     } in 
@@ -104,6 +100,26 @@ let create_project (param : create_project) (storage : storage) : result =
     // final state
     ([op_new_fa2], updated_storage)
 
+let mint_tokens (param : mint_tokens) (storage : storage) : result = 
+    // TODO : Minting permissions/caps in supply
+    let proj_owner = Tezos.sender in 
+    let addr_proj : address = (
+        match (Big_map.find_opt proj_owner storage.projects) with
+        | None -> (failwith error_PROJECT_NOT_FOUND : address)
+        | Some p -> p.addr_project
+    ) in 
+    
+    let txndata_mint = param in 
+    let entrypoint_mint = (
+        match (Tezos.get_entrypoint_opt "%mint" addr_proj : mint_tokens contract option) with 
+        | None -> (failwith error_COULD_NOT_GET_ENTRYPOINT : mint_tokens contract)
+        | Some c -> c
+    ) in 
+    let op_mint = Tezos.transaction txndata_mint 0tez entrypoint_mint in 
+
+    ([ op_mint ;], storage)
+
+
 let bury_carbon (param : bury_carbon) (storage : storage) : result = 
     let ops_burn = List.map param_to_burn param in 
     (ops_burn, storage)
@@ -116,5 +132,7 @@ let main (entrypoint, storage : entrypoint * storage) : result =
     match entrypoint with 
     | CreateProject param ->
         create_project param storage
+    | MintTokens param ->
+        mint_tokens param storage
     | BuryCarbon param ->
         bury_carbon param storage
