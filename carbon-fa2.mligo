@@ -17,12 +17,22 @@ type fa2_operator = address
 type token_metadata = (string, bytes) map
 
 type storage = {
-    carbon_contract : address ; // address of the main carbon contract
-    ledger : (fa2_owner * fa2_token_id , fa2_amt) big_map ;
-    operators : (fa2_owner * fa2_operator * fa2_token_id, unit) big_map;
-    metadata : (fa2_token_id, token_metadata) big_map;
+    // address of the main carbon contract
+    carbon_contract : address ; 
+
+    // the ledger keeps track of who owns what token
+    ledger : (fa2_owner * fa2_token_id , fa2_amt) big_map ; 
+    
+    // an operator can trade tokens on behalf of the fa2_owner
+    // if the key (owner, operator, token_id) returns () this denotes that the operator has permissions
+    // if there is no entry, the operator has no permissions
+    // such permissions need to granted, e.g. for the burn entrypoint in the carbon contract
+    operators : (fa2_owner * fa2_operator * fa2_token_id, unit) big_map; 
+    
+    // token metadata for each token type supported by this contract
+    metadata : (fa2_token_id, token_metadata) big_map; 
 }
-// TODO: Record type to name owner?
+// TODO: keep track of owner in storage?
 
 type result = (operation list) * storage
 
@@ -38,16 +48,16 @@ type update_operators =
     | Remove_operator of fa2_owner * fa2_operator * fa2_token_id
 type mint = (fa2_owner * fa2_token_id * fa2_amt) list
 type burn = (fa2_owner * fa2_token_id * fa2_amt) list
-type get_metadata = fa2_token_id list
+type get_metadata = fa2_token_id list * ((fa2_token_id * token_metadata) list contract)
 
 
 type entrypoint = 
-| Transfer of transfer 
-| Balance_of of balance_of
-| Update_operators of update_operators
-| Mint of mint
-| Burn of burn
-| Get_metadata of get_metadata
+| Transfer of transfer // transfer tokens 
+| Balance_of of balance_of // query an address's balance
+| Update_operators of update_operators // change operators for some address
+| Mint of mint // mint tokens
+| Burn of burn // burn tokens 
+| Get_metadata of get_metadata // query the metadata of a given token
 
 
 (* =============================================================================
@@ -64,13 +74,14 @@ let error_FA2_RECEIVER_HOOK_FAILED = 6n // The receiver hook failed. This error 
 let error_FA2_SENDER_HOOK_FAILED = 7n // The sender failed. This error MUST be raised by the hook implementation
 let error_FA2_RECEIVER_HOOK_UNDEFINED = 8n // Receiver hook is required by the permission behavior, but is not implemented by a receiver contract
 let error_FA2_SENDER_HOOK_UNDEFINED = 9n // Sender hook is required by the permission behavior, but is not implemented by a sender contract
-let error_PERMISSIONS_DENIED = 10n
-let error_ID_ALREADY_IN_USE = 11n
+let error_PERMISSIONS_DENIED = 10n // General catch-all for operator-related permission errors
+let error_ID_ALREADY_IN_USE = 11n // A token ID can only be used once, error if a user wants to add a token ID that's already there
 
 (* =============================================================================
  * Aux Functions
  * ============================================================================= *)
 
+// an auxiliary function for querying an address's balance
 let rec owner_and_id_to_balance (param : ((fa2_owner * fa2_token_id * fa2_amt) list) * ((fa2_owner * fa2_token_id) list) * ((fa2_owner * fa2_token_id , fa2_amt) big_map)) : (fa2_owner * fa2_token_id * fa2_amt) list =
     let (accumulator, request_list, ledger) = param in
     match request_list with
@@ -91,6 +102,11 @@ let rec owner_and_id_to_balance (param : ((fa2_owner * fa2_token_id * fa2_amt) l
  * Entrypoint Functions
  * ============================================================================= *)
 
+// The transfer entrypoint function
+// The input type is a tuple: (sender, list_of_transfers) where the first entry corresponds 
+//    to the sender ("from"), and the second is a list with transfer data.
+// This list of transfers has entries of the form (receiver, token_id, amount) = (address * nat * nat)
+// The transfer function creates a list of transfer operations recursively
 let rec transfer (param , storage : transfer * storage) : result = 
     let (fa2_from, transfers_list) = param in
     match transfers_list with
@@ -126,6 +142,12 @@ let rec transfer (param , storage : transfer * storage) : result =
     | [] -> (([] : operation list), storage)
 
 
+// the entrypoint to query balance 
+// input balance_of is a tuple:
+//   * the first entry is a list of the form (owner, token_id) list which queries the balance of owner in the given token id
+//   * the second entry is a contract that can receive the list of balances. This list is of the form 
+//     (owner, token_id, amount) list = (address * nat * nat) list
+//     An example of such a contract is in tests/test-fa2.mligo 
 let balance_of (param : balance_of) (storage : storage) : result = 
     let (request_list, callback) = param in
     let accumulator = ([] : (fa2_owner * fa2_token_id * fa2_amt) list) in
@@ -134,7 +156,11 @@ let balance_of (param : balance_of) (storage : storage) : result =
     ([t], storage)
 
 
-// fa2_owner adds or removes fa2_operator from storage.operators
+// The entrypoint where fa2_owner adds or removes fa2_operator from storage.operators
+// * The input is a triple: (owner, operator, id) : address * address * nat
+//   This triple is tagged either as Add_operator or Remove_operator
+// * Only the token owner can add or remove operators
+// * An operator can perform transactions on behalf of the owner
 let update_operators (param : update_operators) (storage : storage) : result = 
     match param with
     | Add_operator (fa2_owner, fa2_operator, fa2_token_id) ->
@@ -150,6 +176,7 @@ let update_operators (param : update_operators) (storage : storage) : result =
 
 
 // only the carbon contract can mint tokens
+// This entrypoint can only be called by the carbon contract
 let rec mint_tokens (param, storage : mint * storage) : result =
     let minting_list = param in
     match minting_list with 
@@ -168,6 +195,7 @@ let rec mint_tokens (param, storage : mint * storage) : result =
         mint_tokens (tl, storage)
 
 // only the carbon contract can burn tokens
+// Like minting, this entrypoint can only be called by the carbon contract
 let burn_tokens (param : burn) (storage : storage) : transfer = 
     if Tezos.sender <> storage.carbon_contract then (failwith error_PERMISSIONS_DENIED : transfer) else 
     let burn_addr = ("tz1Ke2h7sDdakHJQh8WX4Z372du1KChsksyU" : address) in 
@@ -186,7 +214,22 @@ let burn_tokens (param : burn) (storage : storage) : transfer =
     in 
     txndata_burn
 
-let get_metadata (_param : get_metadata) (storage : storage) : result = (([] : operation list), storage) // TODO : Metadata details TBD
+// The entrypoint to query token metadata
+// The input is a tuple: (query_list, callback_contract)
+//   * The query list is of token ids and has type `nat list`
+//   * The callback contract must have type ((fa2_token_id * token_metadata) list contract)
+let get_metadata (param : get_metadata) (storage : storage) : result = 
+    let (query_list, callback) = param in 
+    let metadata_list = 
+        List.map 
+        (fun (id : nat) -> 
+            match Big_map.find_opt id storage.metadata with 
+            | None -> (failwith error_FA2_TOKEN_UNDEFINED : nat * token_metadata) 
+            | Some m -> (id, m))
+        query_list in 
+
+    let op_metadata = Tezos.transaction metadata_list 0tez callback in 
+    ( [op_metadata] , storage)
 
 (* =============================================================================
  * Main

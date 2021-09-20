@@ -11,13 +11,17 @@
 
 type project_owner = address
 type project = {
-    addr_project : address;
+    addr_project : address; // will probably add more features to a project, hence the current format
 }
 
 type create_project = (nat * token_metadata) list // (id, metadata) list
 type mint_tokens = (address * nat * nat) list // (owner * token_id * amt) list
 type bury_carbon = (project * nat * nat) list // project, token_id, amt_to_burn
 
+// This contract keeps the admin's (the company's) address as well 
+//   as a big map of all the projects.
+//   This map's key is a project owner, so one address can only 
+//   own one project.
 type storage = {
     admin : address ;
     projects : (project_owner, project) big_map ; // owner -> project
@@ -43,9 +47,12 @@ let error_PERMISSIONS_DENIED = 1n
 let error_COULD_NOT_GET_ENTRYPOINT = 2n
 
 (* =============================================================================
- * Aux Functions
+ * Auxiliary Functions
  * ============================================================================= *)
 
+// an auxiliary function that takes parameters to the BuryCarbon entrypoint 
+// and changes them to an operation that pings the FA2 contrac and burns the 
+// tokens
 let param_to_burn (proj,token_id,amt_to_burn : project * nat * nat) : operation = 
     let owner = Tezos.source in 
     let addr_proj = proj.addr_project in 
@@ -68,6 +75,12 @@ let param_to_burn (proj,token_id,amt_to_burn : project * nat * nat) : operation 
  * Entrypoint Functions
  * ============================================================================= *)
 
+// The entrypoint function that creates a project
+//   the input type create_project is a list of pairs of (nat * token_metadata)
+//   This corresponds to (token_id, token_metadata) of the new FA2 contract. Each 
+//   pair will correspond with a project's "zone", which has its unique token id ( : nat )
+//   and token metadata. Token metadata has type (string, bytes) map
+// type create_project = (nat * token_metadata) list
 let create_project (param : create_project) (storage : storage) : result = 
     let owner = Tezos.source in 
     
@@ -100,6 +113,12 @@ let create_project (param : create_project) (storage : storage) : result =
     // final state
     ([op_new_fa2], updated_storage)
 
+
+//  The entrypoint function that a project owner uses to mint new tokens 
+//      The input type mint_tokens is a list of triples: (address * nat * nat) list
+//      This denotes the to-be owner of the minted tokens, the token id, and the amount, in that order
+//      A project owner can submit multiple mints by including them all as a list
+// type mint_tokens = (address * token_id * amt) list = (address * nat * nat) list
 let mint_tokens (param : mint_tokens) (storage : storage) : result = 
     // TODO : Minting permissions/caps in supply
     let proj_owner = Tezos.sender in 
@@ -119,7 +138,13 @@ let mint_tokens (param : mint_tokens) (storage : storage) : result =
 
     ([ op_mint ;], storage)
 
-
+// The entrypoint function to "bury" carbon, by burning the carbon tokens 
+//      This uses the `param_to_burn` function defined in the aux functions,
+//      which takes the input and makes it into a burn operation
+// The input type bury_carbon is a list of triples: (address * nat * nat) list
+//      This represents the owner of the tokens to be burned, the token id, and the 
+//      amt to burn, in that order
+// type bury_carbon = (address * nat * nat) list 
 let bury_carbon (param : bury_carbon) (storage : storage) : result = 
     let ops_burn = List.map param_to_burn param in 
     (ops_burn, storage)
@@ -128,6 +153,10 @@ let bury_carbon (param : bury_carbon) (storage : storage) : result =
  * Main
  * ============================================================================= *)
 
+// One calls an entrypoint by sending a transaction with a parameter which can 
+//   be matched to one of these patterns specified below.
+// The main function matches the pattern and executes the corresponding 
+//   entrypont function.
 let main (entrypoint, storage : entrypoint * storage) : result =
     match entrypoint with 
     | CreateProject param ->
