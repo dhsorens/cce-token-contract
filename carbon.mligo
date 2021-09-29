@@ -1,5 +1,6 @@
 // The main contract that controls the carbon economics project 
 
+// TODO : Change tuple to record types
 // TODO : Permissions for who can add projects -- do this with a "whitelist" datatype.
 //        That gives them the info and they have a privelege to exercise it if they want to.
 
@@ -14,6 +15,7 @@ type project = {
     addr_project : address; // will probably add more features to a project, hence the current format
 }
 
+type token = { token_address : address ; token_id : nat ; }
 type create_project = (nat * token_metadata) list // (id, metadata) list
 type mint_tokens = (address * nat * nat) list // (owner * token_id * amt) list
 type bury_carbon = (project * nat * nat) list // project, token_id, amt_to_burn
@@ -25,6 +27,7 @@ type bury_carbon = (project * nat * nat) list // project, token_id, amt_to_burn
 type storage = {
     admin : address ;
     projects : (project_owner, project) big_map ; // owner -> project
+    c4dex_address : address ;
 }
 
 (* =============================================================================
@@ -110,8 +113,23 @@ let create_project (param : create_project) (storage : storage) : result =
         projects = Big_map.update owner (Some { addr_project = addr_new_fa2; } : project option) storage.projects ;
     } in 
 
+    // update the c4dex's token whitelist to include this new one 
+    let txndata_update_c4dex_whitelist : (token * (unit option)) list = 
+        List.map 
+        ( fun (id, meta : nat * token_metadata) -> ({ token_address = Tezos.self_address ; token_id = id ; }, Some ()) ) 
+        param 
+    in 
+    let entrypoint_update_c4dex_whitelist = (
+        match (Tezos.get_entrypoint_opt "%whitelistTokens" storage.c4dex_address : (token * (unit option)) list contract option) with
+        | None -> (failwith error_COULD_NOT_GET_ENTRYPOINT : (token * (unit option)) list contract)
+        | Some e -> e
+    ) in 
+    let op_update_c4dex_whitelist = Tezos.transaction txndata_update_c4dex_whitelist 0tez entrypoint_update_c4dex_whitelist in 
+
+    // TODO (?) : update c4x's whitelist too?
+
     // final state
-    ([op_new_fa2], updated_storage)
+    ([op_new_fa2; op_update_c4dex_whitelist], updated_storage)
 
 
 //  The entrypoint function that a project owner uses to mint new tokens 
@@ -148,6 +166,11 @@ let mint_tokens (param : mint_tokens) (storage : storage) : result =
 let bury_carbon (param : bury_carbon) (storage : storage) : result = 
     let ops_burn = List.map param_to_burn param in 
     (ops_burn, storage)
+
+let update_c4dex_address (param : address) (storage : storage) : result = 
+    let burn_addr = ("tz1Ke2h7sDdakHJQh8WX4Z372du1KChsksyU" : address) in 
+    if (Tezos.sender <> storage.admin || storage.c4dex_address <> burn_addr) then (failwith error_PERMISSIONS_DENIED : result) else
+    ([] : operation list), {storage with c4dex_address = param ; }
 
 (* =============================================================================
  * Main

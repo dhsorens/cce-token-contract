@@ -24,6 +24,7 @@ let init_carbon_contract () =
     let init_carbon_storage : storage_carbon = {
         admin = addr_newcorp ;
         projects = (Big_map.empty : (project_owner, project) big_map) ;
+        c4dex_address = ("tz1Ke2h7sDdakHJQh8WX4Z372du1KChsksyU" : address) ;
     } in
     let (typed_addr_carbon, _pgm_carbon, _size_carbon) = 
         Test.originate main_carbon init_carbon_storage 0tez in
