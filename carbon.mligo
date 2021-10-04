@@ -18,6 +18,8 @@ type create_project = (nat * token_metadata) list // (id, metadata) list
 type mint_tokens = (address * nat * nat) list // (owner * token_id * amt) list
 type bury_carbon = (project * nat * nat) list // project, token_id, amt_to_burn
 
+type token = { token_address : address ; token_id : nat ; }
+
 // This contract keeps the admin's (the company's) address as well 
 //   as a big map of all the projects.
 //   This map's key is a project owner, so one address can only 
@@ -25,6 +27,7 @@ type bury_carbon = (project * nat * nat) list // project, token_id, amt_to_burn
 type storage = {
     admin : address ;
     projects : (project_owner, project) big_map ; // owner -> project
+    c4x_address : address ;
 }
 
 (* =============================================================================
@@ -110,8 +113,23 @@ let create_project (param : create_project) (storage : storage) : result =
         projects = Big_map.update owner (Some { addr_project = addr_new_fa2; } : project option) storage.projects ;
     } in 
 
-    // final state
-    ([op_new_fa2], updated_storage)
+    // update the c4x whitelist
+    let txndata_whitelist : (token * (unit option)) list = 
+        List.map
+        (fun (id, meta : nat * token_metadata) -> 
+            ({ token_address = addr_new_fa2 ; token_id = id ; }, (Some ()))
+        )
+        param
+        in
+    let entrypoint_whitelist : (token * (unit option)) list contract = (
+        match (Tezos.get_entrypoint_opt "%whitelistTokens" storage.c4x_address : (token * (unit option)) list contract option) with
+        | None -> (failwith error_COULD_NOT_GET_ENTRYPOINT : (token * (unit option)) list contract)
+        | Some e -> e
+    ) in 
+    let op_whitelist = Tezos.transaction txndata_whitelist 0tez entrypoint_whitelist in
+
+    [ op_new_fa2 ; op_whitelist ; ], 
+    updated_storage
 
 
 //  The entrypoint function that a project owner uses to mint new tokens 
