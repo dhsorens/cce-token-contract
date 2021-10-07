@@ -19,7 +19,7 @@ There are various auxiliary contracts in the `aux` folder.
 The main, "admin" contract is `carbon.mligo`. Through this contract you can:
 1. Create a project 
 1. Mint tokens for a project you own
-1. "Bury" a carbon token that you own
+1. "Bury" (burn) a carbon token that you own
 <!--1. Add a new token (zone) to your project -->
 
 When a user creates a project, they submit to the `carbon` contract a datatype containing distinct token ids (zones in the project) and metadata corresponding to each of the zones. The `carbon` contract will then deploy an FA2 contract specific to that project. The project owner (creator) can then mint tokens corresponding to captured carbon in each of their zones.
