@@ -2,6 +2,18 @@
 
 This repository is for the FA2 contract that represents the carbon token developed by the Cambridge Centre for Carbon Credits.
 
+# Contract Structures 
+
+There are three primary contracts:
+1. `carbon.mligo` : the main, controller contract, which manages permissions and allows for creating a project, minting tokens, and burning ("burying") tokens.
+1. `carbon-fa2.mligo` : the template contract for a project, which manages the project's different tokens as a standard FA2 contract.
+1. `c4x.mligo` : the double-sided auction contract which allows users to post tokens for sale in various ways, and for buyers to purchase tokens.
+<!-- 
+1. `bury.mligo` : the contract that manages the BURY token
+-->
+
+There are various auxiliary contracts in the `aux` folder.
+
 ## Creating a Project
 
 The main, "admin" contract is `carbon.mligo`. Through this contract you can:
@@ -26,16 +38,3 @@ It also allows a prospective buyer to:
 ## FA2 Functionality
 
 Projects are managed by an FA2 contract with all the standard entrypoints. Thus users and token holders can manage their tokens, i.e. with the `Transfer` or `Balance_of` entrypoints. This makes these carbon tokens composable with other on-chain applications.
-
-
-# Contract Structures 
-
-There are three primary contracts:
-1. `carbon.mligo` : the main, controller contract, which manages permissions and allows for creating a project, minting tokens, and burning ("burying") tokens.
-1. `carbon-fa2.mligo` : the template contract for a project, which manages the project's different tokens as a standard FA2 contract.
-1. `c4x.mligo` : the double-sided auction contract which allows users to post tokens for sale in various ways, and for buyers to purchase tokens.
-<!-- 
-1. `bury.mligo` : the contract that manages the BURY token
--->
-
-There are various auxiliary contracts in the `aux` folder.
