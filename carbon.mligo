@@ -3,7 +3,7 @@
 // TODO : Permissions for who can add projects -- do this with a "whitelist" datatype.
 //        That gives them the info and they have a privelege to exercise it if they want to.
 
-#include "deploy-carbon-fa2.mligo"
+#include "aux/deploy-carbon-fa2.mligo"
 
 (* =============================================================================
  * Storage
