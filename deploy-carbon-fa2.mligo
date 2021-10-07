@@ -5,7 +5,6 @@ let deploy_carbon_fa2 (delegate : key_hash option) (amnt : tez) (init_storage : 
     Tezos.create_contract
     (fun (entrypoint, storage : entrypoint * storage) -> (
         let error_FA2_INSUFFICIENT_BALANCE = 1n in
-        let error_FA2_NOT_OWNER = 3n in
         let error_FA2_NOT_OPERATOR = 4n in
         let error_PERMISSIONS_DENIED = 10n in
         let rec main ((entrypoint, storage) : entrypoint * storage) : result =

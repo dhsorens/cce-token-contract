@@ -116,7 +116,7 @@ let create_project (param : create_project) (storage : storage) : result =
     // update the c4x whitelist
     let txndata_whitelist : (token * (unit option)) list = 
         List.map
-        (fun (id, meta : nat * token_metadata) -> 
+        (fun (id, _meta : nat * token_metadata) -> 
             ({ token_address = addr_new_fa2 ; token_id = id ; }, (Some ()))
         )
         param
