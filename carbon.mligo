@@ -37,6 +37,7 @@ type entrypoint =
 | CreateProject of create_project 
 | MintTokens of mint_tokens
 | BuryCarbon of bury_carbon 
+| UpdateC4XAddress of address
 
 type result = (operation list) * storage
 
@@ -103,10 +104,10 @@ let create_project (param : create_project) (storage : storage) : result =
         (fun (c : create) -> 
             ({ token_address = addr_new_fa2 ; token_id = c.token_id ; }, (Some ())) )
         param in
-    let entrypoint_whitelist : (token * (unit option)) list contract = (
+    let entrypoint_whitelist : (token * (unit option)) list contract =
         match (Tezos.get_entrypoint_opt "%whitelistTokens" storage.c4x_address : (token * (unit option)) list contract option) with
         | None -> (failwith error_COULD_NOT_GET_ENTRYPOINT : (token * (unit option)) list contract)
-        | Some e -> e ) in 
+        | Some e -> e in 
     let op_whitelist = Tezos.transaction txndata_whitelist 0tez entrypoint_whitelist in
     // update the local storage
     let storage = { storage with 
@@ -143,6 +144,18 @@ let bury_carbon (param : bury_carbon) (storage : storage) : result =
     let ops_burn = List.map param_to_burn param in 
     (ops_burn, storage)
 
+// This is a function for bootstrapping these contracts onto the chain, since both
+// the carbon contract and the c4x contract need to know each other's addresses
+let update_c4x_address (c4x_address : address) (storage : storage) : result = 
+    let null_address = ("tz1Ke2h7sDdakHJQh8WX4Z372du1KChsksyU" : address) in 
+    // check permissions
+    if Tezos.sender <> storage.admin then (failwith error_PERMISSIONS_DENIED : result) else
+    // this address can only change once
+    if storage.c4x_address <> null_address 
+    then ([] : operation list), storage
+    else ([] : operation list), { storage with c4x_address = c4x_address ; }
+
+
 (* =============================================================================
  * Main
  * ============================================================================= *)
@@ -159,3 +172,5 @@ let main (entrypoint, storage : entrypoint * storage) : result =
         mint_tokens param storage
     | BuryCarbon param ->
         bury_carbon param storage
+    | UpdateC4XAddress param ->
+        update_c4x_address param storage
