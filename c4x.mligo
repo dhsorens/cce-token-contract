@@ -39,7 +39,7 @@ type storage = {
     offers : (token_offer, offer_data) big_map ;
     token_whitelist : (token, unit) big_map ; 
 }
-// TODO : collisions
+// TODO : *collisions* in all of these databases
 
 (* =============================================================================
  * Entrypoint Type Definition
@@ -112,14 +112,14 @@ let post_for_sale (token, data : token_for_sale * sale_data) (storage : storage)
               | Some u -> u in 
     // receive the tokens; sender has to authorize this as an operator
     let txndata_receive_tokens = { 
-        from = Tezos.sender ; 
-        to = [ { to = Tezos.self_address ; token_id = token.token_id ; qty = token.qty ; } ; ] ; } in
+        from_ = Tezos.sender ; 
+        txs = [ { to_ = Tezos.self_address ; token_id = token.token_id ; amount = token.qty ; } ; ] ; } in
     let entrypoint_receive_tokens =
-        match (Tezos.get_entrypoint_opt "%transfer" token.token_address : transfer contract option) with 
-        | None -> (failwith error_NO_TOKEN_CONTRACT_FOUND : transfer contract)
+        match (Tezos.get_entrypoint_opt "%transfer" token.token_address : transfer list contract option) with 
+        | None -> (failwith error_NO_TOKEN_CONTRACT_FOUND : transfer list contract)
         | Some e -> e in
     let op_receive_tokens = 
-        Tezos.transaction txndata_receive_tokens 0tez entrypoint_receive_tokens in 
+        Tezos.transaction [txndata_receive_tokens] 0tez entrypoint_receive_tokens in 
     // update storage 
     let tokens_for_sale = Big_map.update token (Some data) storage.tokens_for_sale in 
     // output
@@ -137,14 +137,14 @@ let unpost_for_sale (token : token_for_sale) (storage : storage) : result =
         | (Some d, s) -> (d, s) in
     // send the token back 
     let txndata_return_tokens = { 
-        from = Tezos.self_address ; 
-        to = [ { to = token.owner ; token_id = token.token_id ; qty = token.qty ; } ; ] ; } in
+        from_ = Tezos.self_address ; 
+        txs = [ { to_ = token.owner ; token_id = token.token_id ; amount = token.qty ; } ; ] ; } in
     let entrypoint_return_tokens =
-        match (Tezos.get_entrypoint_opt "%transfer" token.token_address : transfer contract option) with 
-        | None -> (failwith error_NO_TOKEN_CONTRACT_FOUND : transfer contract)
+        match (Tezos.get_entrypoint_opt "%transfer" token.token_address : transfer list contract option) with 
+        | None -> (failwith error_NO_TOKEN_CONTRACT_FOUND : transfer list contract)
         | Some e -> e in 
     let op_return_tokens = 
-        Tezos.transaction txndata_return_tokens 0tez entrypoint_return_tokens in 
+        Tezos.transaction [txndata_return_tokens] 0tez entrypoint_return_tokens in 
     // output
     [op_return_tokens], 
     {storage with tokens_for_sale = updated_tokens_for_sale ;}
@@ -161,20 +161,19 @@ let buy_for_sale (token: token_for_sale) (storage : storage) : result =
     if Tezos.amount < price * 1mutez then (failwith error_INSUFFICIENT_FUNDS : result) else
     // send the tokens to the buyer
     let txndata_send_tokens = {
-        from = Tezos.self_address ; 
-        to = [ { to = buyer ; token_id = token.token_id ; qty = token.qty ; } ; ] ; } in 
+        from_ = Tezos.self_address ; 
+        txs = [ { to_ = buyer ; token_id = token.token_id ; amount = token.qty ; } ; ] ; } in 
     let entrypoint_send_tokens =
-        match (Tezos.get_entrypoint_opt "%transfer" token.token_address : transfer contract option) with 
-        | None -> (failwith error_NO_TOKEN_CONTRACT_FOUND : transfer contract)
+        match (Tezos.get_entrypoint_opt "%transfer" token.token_address : transfer list contract option) with 
+        | None -> (failwith error_NO_TOKEN_CONTRACT_FOUND : transfer list contract)
         | Some e -> e in 
     let op_send_tokens = 
-        Tezos.transaction txndata_send_tokens 0tez entrypoint_send_tokens in 
+        Tezos.transaction [txndata_send_tokens] 0tez entrypoint_send_tokens in 
     // send the XTZ along to the seller (owner)
-    let entrypoint_pay_seller = (
+    let entrypoint_pay_seller =
         match (Tezos.get_contract_opt token.owner : unit contract option) with 
         | None -> (failwith error_INVALID_ADDRESS : unit contract)
-        | Some e -> e
-    ) in 
+        | Some e -> e in 
     let op_pay_seller = Tezos.transaction () (price * 1mutez) entrypoint_pay_seller in 
     // output
     [op_send_tokens ; op_pay_seller ;], 
@@ -198,14 +197,14 @@ let initiate_auction (token, data : token_for_sale * auction_data) (storage : st
     if data.deadline <= Tezos.now then (failwith error_INVALID_DEADLINE : result) else
     // receive the tokens
     let txndata_receive_tokens = { 
-        from = Tezos.sender ; 
-        to = [ { to = Tezos.self_address ; token_id = token.token_id ; qty = token.qty ; } ; ] ; } in
+        from_ = Tezos.sender ; 
+        txs = [ { to_ = Tezos.self_address ; token_id = token.token_id ; amount = token.qty ; } ; ] ; } in
     let entrypoint_receive_tokens =
-        match (Tezos.get_entrypoint_opt "%transfer" token.token_address : transfer contract option) with 
-        | None -> (failwith error_NO_TOKEN_CONTRACT_FOUND : transfer contract)
+        match (Tezos.get_entrypoint_opt "%transfer" token.token_address : transfer list contract option) with 
+        | None -> (failwith error_NO_TOKEN_CONTRACT_FOUND : transfer list contract)
         | Some e -> e in
     let op_receive_tokens = 
-        Tezos.transaction txndata_receive_tokens 0tez entrypoint_receive_tokens in 
+        Tezos.transaction [txndata_receive_tokens] 0tez entrypoint_receive_tokens in 
     // update the tokens_on_auction big map
     let init_data : auction_data = {
         leader = Tezos.sender ; 
@@ -229,7 +228,7 @@ let bid_on_auction (token : token_for_sale) (storage : storage) : result =
     if data.deadline <= Tezos.now then (failwith error_AUCTION_IS_OVER : result) else 
     // if the bid isn't at least 0.1tez higher than the leading bid, the transaction fails
     let bid = Tezos.amount in 
-    if bid <= leading_bid * 1mutez + 100_000mutez then (failwith error_BID_TOO_LOW : result) else 
+    if bid < leading_bid * 1mutez + 100_000mutez then (failwith error_BID_TOO_LOW : result) else 
     // update the storage to include the new leader
     let new_data = { data with leader = Tezos.sender ; leading_bid = (bid / 1mutez) ; } in 
     let new_tokens_on_auction = Big_map.update token (Some new_data) storage.tokens_on_auction in
@@ -261,14 +260,14 @@ let finish_auction (token : token_for_sale) (storage : storage) : result =
     if data.deadline > Tezos.now then (failwith error_AUCTION_NOT_OVER : result) else
     // transfer tokens to the leader
     let txndata_send_tokens = {
-        from = Tezos.self_address ; 
-        to = [ { to = leader ; token_id = token.token_id ; qty = token.qty ; } ; ] ; } in 
+        from_ = Tezos.self_address ; 
+        txs = [ { to_ = leader ; token_id = token.token_id ; amount = token.qty ; } ; ] ; } in 
     let entrypoint_send_tokens =
-        match (Tezos.get_entrypoint_opt "%transfer" token.token_address : transfer contract option) with 
-        | None -> (failwith error_NO_TOKEN_CONTRACT_FOUND : transfer contract)
+        match (Tezos.get_entrypoint_opt "%transfer" token.token_address : transfer list contract option) with 
+        | None -> (failwith error_NO_TOKEN_CONTRACT_FOUND : transfer list contract)
         | Some e -> e in 
     let op_send_tokens = 
-        Tezos.transaction txndata_send_tokens 0tez entrypoint_send_tokens in 
+        Tezos.transaction [txndata_send_tokens] 0tez entrypoint_send_tokens in 
     // remove this token from storage 
     let new_tokens_on_auction = Big_map.update token (None : auction_data option) storage.tokens_on_auction in  
     // transfer highest bid to the owner
@@ -362,14 +361,14 @@ let accept_offer (token, data : token_offer * offer_data) (storage : storage) : 
         qty = token.qty ; } in
     let buyer = token.offering_party in 
     let txndata_send_tokens = {
-        from = Tezos.self_address ; 
-        to = [ { to = buyer ; token_id = token.token_id ; qty = token.qty ; } ; ] ; } in 
+        from_ = token.owner ; 
+        txs = [ { to_ = buyer ; token_id = token.token_id ; amount = token.qty ; } ; ] ; } in 
     let entrypoint_send_tokens =
-        match (Tezos.get_entrypoint_opt "%transfer" token.token_address : transfer contract option) with 
-        | None -> (failwith error_NO_TOKEN_CONTRACT_FOUND : transfer contract)
+        match (Tezos.get_entrypoint_opt "%transfer" token.token_address : transfer list contract option) with 
+        | None -> (failwith error_NO_TOKEN_CONTRACT_FOUND : transfer list contract)
         | Some e -> e in 
     let op_send_tokens = 
-        Tezos.transaction txndata_send_tokens 0tez entrypoint_send_tokens in 
+        Tezos.transaction [txndata_send_tokens] 0tez entrypoint_send_tokens in 
     // transfer the XTZ of the offer to the owner 
     let entrypoint_send_xtz : unit contract = 
         match (Tezos.get_contract_opt token.owner : unit contract option) with 
