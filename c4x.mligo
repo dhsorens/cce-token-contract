@@ -13,6 +13,7 @@ type token_for_sale = {
     token_address : address ; 
     token_id : nat ; 
     qty : nat ;
+    batch_number : nat ; // to avoid collisions; default is 0n
 }
 type sale_data = { price : nat ; }
 
@@ -39,7 +40,6 @@ type storage = {
     offers : (token_offer, offer_data) big_map ;
     token_whitelist : (token, unit) big_map ; 
 }
-// TODO : *collisions* in all of these databases
 
 (* =============================================================================
  * Entrypoint Type Definition
@@ -88,6 +88,7 @@ let error_INVALID_DEADLINE = 9n
 let error_OFFER_ALREADY_MADE = 10n
 let error_NO_OFFER_FOUND = 11n
 let error_INSUFFICIENT_FUNDS = 12n
+let error_COLLISION = 13n
 
 (* =============================================================================
  * Aux Functions
@@ -104,7 +105,9 @@ let error_INSUFFICIENT_FUNDS = 12n
  ForSale Entrypoint Functions 
  *** **)
 let post_for_sale (token, data : token_for_sale * sale_data) (storage : storage) : result = 
+    // check permissions and collisions
     if token.owner <> Tezos.sender then (failwith error_PERMISSIONS_DENIED : result) else
+    if Big_map.mem token storage.tokens_for_sale then (failwith error_COLLISION : result) else
     // check the token is whitelisted
     let token_data : token = { token_address = token.token_address ; token_id = token.token_id ; } in 
     let () = match Big_map.find_opt token_data storage.token_whitelist with 
@@ -193,8 +196,9 @@ let for_sale (param : for_sale) (storage : storage) : result =
  Auction Entrypoint Functions 
  *** **)
 let initiate_auction (token, data : token_for_sale * auction_data) (storage : storage) : result = 
-    // check the deadline is not already passed
+    // check the deadline is not already passed and for collisions
     if data.deadline <= Tezos.now then (failwith error_INVALID_DEADLINE : result) else
+    if Big_map.mem token storage.tokens_on_auction then (failwith error_COLLISION : result) else
     // receive the tokens
     let txndata_receive_tokens = { 
         from_ = Tezos.sender ; 
