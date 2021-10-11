@@ -11,44 +11,50 @@ let deploy_carbon_fa2 (delegate : key_hash option) (amnt : tez) (init_storage : 
         let rec main (entrypoint, storage : entrypoint * storage) : result = (
             match entrypoint with
             | Transfer param -> (
-                match param.to with
+                let rec transfer_txn (param , storage : transfer * storage) : storage = 
+                    match param.txs with
+                    | [] -> storage
+                    | hd :: tl ->
+                        let (from, to, token_id, qty) = (param.from_, hd.to_, hd.token_id, hd.amount) in 
+                        // check permissions
+                        let operator = Tezos.sender in 
+                        let owner = from in 
+                        let not_operator : bool = 
+                            match Big_map.find_opt (owner, operator, token_id) storage.operators with 
+                            | None -> true
+                            | Some () -> false in 
+                        if ((Tezos.sender <> from) && not_operator) then (failwith error_FA2_NOT_OPERATOR : storage) else 
+                        // check balance
+                        let sender_token_balance =
+                            match Big_map.find_opt (from, token_id) storage.ledger with
+                            | None -> 0n
+                            | Some token_balance -> token_balance in
+                        let recipient_balance = 
+                            match Big_map.find_opt (to, token_id) storage.ledger with
+                            | None -> 0n
+                            | Some recipient_token_balance -> recipient_token_balance in
+                        if (sender_token_balance < qty) then (failwith error_FA2_INSUFFICIENT_BALANCE : storage) else
+                        // update the ledger
+                        let ledger = 
+                            Big_map.update
+                            (to, token_id)
+                            (Some (recipient_balance + qty))
+                                (Big_map.update 
+                                (from, token_id) 
+                                (Some (abs (sender_token_balance - qty))) 
+                                storage.ledger) in 
+                        let storage = {storage with ledger = ledger ; } in
+                        let param = { from_ = from ; txs = tl ; } in 
+                        transfer_txn (param, storage) in 
+                match param with 
                 | [] -> (([] : operation list), storage)
-                | hd :: tl ->
-                    let (from, to, token_id, qty) = (param.from, hd.to, hd.token_id, hd.qty) in 
-                    // check permissions
-                    let operator = Tezos.sender in 
-                    let owner = from in 
-                    let not_operator : bool = 
-                        match Big_map.find_opt (owner, operator, token_id) storage.operators with 
-                        | None -> true
-                        | Some () -> false in 
-                    if ((Tezos.sender <> from) && not_operator) then (failwith error_FA2_NOT_OPERATOR : result) else 
-                    // check balance
-                    let sender_token_balance =
-                        match Big_map.find_opt (from, token_id) storage.ledger with
-                        | None -> 0n
-                        | Some token_balance -> token_balance in
-                    let recipient_balance = 
-                        match Big_map.find_opt (to, token_id) storage.ledger with
-                        | None -> 0n
-                        | Some recipient_token_balance -> recipient_token_balance in
-                    if (sender_token_balance < qty) then (failwith error_FA2_INSUFFICIENT_BALANCE : result) else
-                    // update the ledger
-                    let ledger = 
-                        Big_map.update
-                        (to, token_id)
-                        (Some (recipient_balance + qty))
-                            (Big_map.update 
-                            (from, token_id) 
-                            (Some (abs (sender_token_balance - qty))) 
-                            storage.ledger) in 
-                    let storage = {storage with ledger = ledger ; } in
-                    let param = { from = from ; to = tl ; } in 
-                    main (Transfer(param), storage))
+                | hd :: tl -> 
+                    let storage = transfer_txn (hd, storage) in 
+                    main (Transfer(tl), storage))
             | Balance_of param -> (
-                let (request_list, callback) = (param.owner_data, param.callback) in 
-                let accumulator = ([] : token_ownership list) in
-                let rec owner_and_id_to_balance (param : (token_ownership list) * (owner_data list) * ((fa2_owner * fa2_token_id , fa2_amt) big_map)) : token_ownership list = 
+                let (request_list, callback) = (param.requests, param.callback) in 
+                let accumulator = ([] : callback_data list) in
+                let rec owner_and_id_to_balance (param : (callback_data list) * (requests list) * ((fa2_owner * fa2_token_id , fa2_amt) big_map)) : callback_data list =
                     let (accumulator, request_list, ledger) = param in
                     match request_list with
                     | [] -> accumulator 
@@ -59,29 +65,36 @@ let deploy_carbon_fa2 (delegate : key_hash option) (amnt : tez) (init_storage : 
                             match Big_map.find_opt (owner, token_id) ledger with 
                             | None -> 0n
                             | Some owner_balance -> owner_balance in
-                        let accumulator = { owner = owner ; token_id = token_id ; qty = qty ; } :: accumulator in
-                        owner_and_id_to_balance (accumulator, t, ledger) in
+                        let request = { owner = owner ; token_id = token_id ; } in
+                        let accumulator = { request = request ; balance = qty ; } :: accumulator in
+                        owner_and_id_to_balance (accumulator, t, ledger) in 
                 let ack_list = owner_and_id_to_balance (accumulator, request_list, storage.ledger) in
                 let t = Tezos.transaction ack_list 0mutez callback in
                 ([t], storage))
             | Update_operators param -> (
+                let update_operator (param : update_operator) (storage : storage) : storage = 
+                    match param with
+                    | Add_operator o ->
+                        let (owner, operator, token_id) = (o.owner, o.operator, o.token_id) in 
+                        // check permissions        
+                        if (Tezos.source <> owner) then (failwith error_PERMISSIONS_DENIED : storage) else
+                        // update storage
+                        let storage = {storage with 
+                            operators = Big_map.update (owner, operator, token_id) (Some ()) storage.operators ; } in 
+                        storage  
+                    | Remove_operator o ->
+                        let (owner, operator, token_id) = (o.owner, o.operator, o.token_id) in 
+                        // check permissions
+                        if (Tezos.sender <> owner) then (failwith error_PERMISSIONS_DENIED : storage) else
+                        // update storage
+                        let storage = {storage with 
+                            operators = Big_map.update (owner,operator,token_id) (None : unit option) storage.operators ; } in 
+                        storage in 
                 match param with
-                | Add_operator o ->
-                    let (token_owner, operator, token_id) = (o.token_owner, o.operator, o.token_id) in 
-                    // check permissions        
-                    if (Tezos.source <> token_owner) then (failwith error_PERMISSIONS_DENIED : result) else
-                    // update storage
-                    let storage = {storage with 
-                        operators = Big_map.update (token_owner, operator, token_id) (Some ()) storage.operators ; } in 
-                    (([] : operation list), storage)
-                | Remove_operator o ->
-                    let (token_owner, operator, token_id) = (o.token_owner, o.operator, o.token_id) in 
-                    // check permissions
-                    if (Tezos.sender <> token_owner) then (failwith error_PERMISSIONS_DENIED : result) else
-                    // update storage
-                    let storage = {storage with 
-                        operators = Big_map.update (token_owner,operator,token_id) (None : unit option) storage.operators ; } in 
-                    (([] : operation list), storage))
+                | [] -> (([] : operation list), storage)
+                | hd :: tl -> 
+                    let storage = update_operator hd storage in 
+                    main (Update_operators(tl), storage))
             | Mint param -> (
                 let minting_list = param in
                 match minting_list with 
@@ -107,18 +120,18 @@ let deploy_carbon_fa2 (delegate : key_hash option) (amnt : tez) (init_storage : 
                 let from = Tezos.source in 
                 // transfer the tokens to the burn address
                 let txndata_burn = {
-                    from = from ;
-                    to = List.map
-                        (fun (b : token_ownership) : transfer_to -> 
+                    from_ = from ;
+                    txs = List.map
+                        (fun (b : mintburn_data) : transfer_to -> 
                             let () = assert (b.owner = from) in 
                             {
-                                to = burn_addr ;
+                                to_ = burn_addr ;
                                 token_id = b.token_id ;
-                                qty = b.qty ;
+                                amount = b.qty ;
                             })
                         param ;
                 } in 
-                main (Transfer(txndata_burn), storage))
+                main (Transfer([txndata_burn]), storage))
             | Get_metadata param -> (
                 let query_list = param.token_ids in 
                 let callback = param.callback in 

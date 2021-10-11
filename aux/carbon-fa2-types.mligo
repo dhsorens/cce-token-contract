@@ -28,25 +28,28 @@ type result = (operation list) * storage
 (* =============================================================================
  * Entrypoint Type Definition
  * ============================================================================= *)
-type transfer_to = [@layout:comb]{ to : address ; token_id : nat ; qty : nat ; }
-type transfer = [@layout:comb]{
-    from : address ; 
-    to : transfer_to list ;
-}
+type transfer_to = [@layout:comb]{ to_ : address ; token_id : nat ; amount : nat ; }
+type transfer = 
+    [@layout:comb]
+    { from_ : address; 
+      txs : transfer_to list; }
 
-type owner_data = [@layout:comb]{ owner : address ; token_id : nat ; }
-type token_ownership = [@layout:comb]{ owner : address ; token_id : nat ; qty : nat ; }
+type requests = [@layout:comb]{ owner : address ; token_id : nat ; }
+type request = [@layout:comb]{ owner : address ; token_id : nat ; }
+type callback_data = [@layout:comb]{ request : request ; balance : nat ; }
 type balance_of = [@layout:comb]{
-    owner_data : owner_data list ; 
-    callback : token_ownership list contract ;
+    requests : requests list ; 
+    callback : callback_data list contract ;
 }
 
-type operator_data = [@layout:comb]{ token_owner : address ; operator : address ; token_id : nat ; }
-type update_operators = 
+type operator_data = [@layout:comb]{ owner : address ; operator : address ; token_id : nat ; }
+type update_operator = 
     | Add_operator of operator_data
     | Remove_operator of operator_data
+type update_operators = update_operator list
 
-type mintburn = token_ownership list
+type mintburn_data = { owner : address ; token_id : nat ; qty : nat ; }
+type mintburn = mintburn_data list
 
 type callback_metadata = { token_id : nat ; token_metadata : (string, bytes) map ; }
 type get_metadata = {
@@ -55,7 +58,7 @@ type get_metadata = {
 }
 
 type entrypoint = 
-| Transfer of transfer // transfer tokens 
+| Transfer of transfer list // transfer tokens 
 | Balance_of of balance_of // query an address's balance
 | Update_operators of update_operators // change operators for some address
 | Mint of mintburn // mint tokens
