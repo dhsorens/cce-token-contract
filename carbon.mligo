@@ -11,7 +11,7 @@ type project_address = address
 type token = { token_address : address ; token_id : nat ; }
 
 type create = { token_id : nat ; token_metadata : (string, bytes) map ; }
-type mint   = { token_owner : address ; token_id : nat ; qty : nat ; }
+type mint   = { owner : address ; token_id : nat ; qty : nat ; } // = mintburn_data
 type bury   = { project_address : address ; token_id : nat ; qty : nat ; }
 
 type create_project = create list
@@ -81,6 +81,8 @@ let param_to_burn (b : bury) : operation =
 // type create_project = (nat * token_metadata) list
 let create_project (param : create_project) (storage : storage) : result = 
     let owner = Tezos.source in 
+    // check the project owner doesn't already have a project 
+    if Big_map.mem owner storage.projects then (failwith error_PERMISSIONS_DENIED : result) else
     // construct the initial storage for your project's FA2 contract
     let ledger    = (Big_map.empty : (fa2_owner * fa2_token_id , fa2_amt) big_map) in 
     let operators = (Big_map.empty : (fa2_owner * fa2_operator * fa2_token_id, unit) big_map) in  
