@@ -110,9 +110,7 @@ let post_for_sale (token, data : token_for_sale * sale_data) (storage : storage)
     if Big_map.mem token storage.tokens_for_sale then (failwith error_COLLISION : result) else
     // check the token is whitelisted
     let token_data : token = { token_address = token.token_address ; token_id = token.token_id ; } in 
-    let () = match Big_map.find_opt token_data storage.token_whitelist with 
-              | None -> (failwith error_TOKEN_NOT_WHITELISTED : unit) 
-              | Some u -> u in 
+    if not Big_map.mem token_data storage.token_whitelist then (failwith error_TOKEN_NOT_WHITELISTED : result) else
     // receive the tokens; sender has to authorize this as an operator
     let txndata_receive_tokens = { 
         from_ = Tezos.sender ; 
@@ -196,9 +194,10 @@ let for_sale (param : for_sale) (storage : storage) : result =
  Auction Entrypoint Functions 
  *** **)
 let initiate_auction (token, data : token_for_sale * auction_data) (storage : storage) : result = 
-    // check the deadline is not already passed and for collisions
+    // check the deadline is not already passed, for collisions, and that the token is whitelisted
     if data.deadline <= Tezos.now then (failwith error_INVALID_DEADLINE : result) else
     if Big_map.mem token storage.tokens_on_auction then (failwith error_COLLISION : result) else
+    if not Big_map.mem {token_address = token.token_address ; token_id = token.token_id ; } storage.token_whitelist then (failwith error_TOKEN_NOT_WHITELISTED : result) else
     // receive the tokens
     let txndata_receive_tokens = { 
         from_ = Tezos.sender ; 
@@ -305,6 +304,8 @@ let auction (param : auction) (storage : storage) : result =
  Offer Entrypoint Functions 
  *** **) 
 let make_offer (token : token_for_sale) (storage : storage) : result = 
+    // make sure the token is whitelisted
+    if not Big_map.mem { token_address = token.token_address ; token_id = token.token_id ; } storage.token_whitelist then (failwith error_TOKEN_NOT_WHITELISTED : result) else
     // the offer-maker sends their offer in the txn
     let quote = (Tezos.amount / 1mutez) in 
     let offering_party = Tezos.sender in 
@@ -358,11 +359,6 @@ let accept_offer (token, data : token_offer * offer_data) (storage : storage) : 
         | (Some o, n) -> (o, n) in 
     if offer.quote <> data.quote then (failwith error_NO_OFFER_FOUND : result) else
     // transfer the tokens to the offering party
-    let token_data : token_for_sale = {
-        owner = token.owner ;
-        token_address = token.token_address ;
-        token_id = token.token_id ;
-        qty = token.qty ; } in
     let buyer = token.offering_party in 
     let txndata_send_tokens = {
         from_ = token.owner ; 

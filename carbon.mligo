@@ -48,6 +48,7 @@ type result = (operation list) * storage
 let error_PROJECT_NOT_FOUND = 0n
 let error_PERMISSIONS_DENIED = 1n
 let error_COULD_NOT_GET_ENTRYPOINT = 2n
+let error_COLLISION = 3n
 
 (* =============================================================================
  * Auxiliary Functions
@@ -57,6 +58,7 @@ let error_COULD_NOT_GET_ENTRYPOINT = 2n
 // and changes them to an operation that pings the FA2 contrac and burns the 
 // tokens
 let param_to_burn (b : bury) : operation = 
+    // ensure only the owner can burn his/her tokens
     let owner = Tezos.source in 
     // get op data
     let txndata_burn : mintburn = 
@@ -82,7 +84,7 @@ let param_to_burn (b : bury) : operation =
 let create_project (param : create_project) (storage : storage) : result = 
     let owner = Tezos.source in 
     // check the project owner doesn't already have a project 
-    if Big_map.mem owner storage.projects then (failwith error_PERMISSIONS_DENIED : result) else
+    if Big_map.mem owner storage.projects then (failwith error_COLLISION : result) else
     // construct the initial storage for your project's FA2 contract
     let ledger    = (Big_map.empty : (fa2_owner * fa2_token_id , fa2_amt) big_map) in 
     let operators = (Big_map.empty : (fa2_owner * fa2_operator * fa2_token_id, unit) big_map) in  
@@ -123,6 +125,7 @@ let create_project (param : create_project) (storage : storage) : result =
 //      A project owner can submit multiple mints by including them all as a list
 let mint_tokens (param : mint_tokens) (storage : storage) : result = 
     let proj_owner = Tezos.sender in 
+    // TODO: permissions to regulate minting 
     let addr_proj : address =
         match Big_map.find_opt proj_owner storage.projects with
         | None -> (failwith error_PROJECT_NOT_FOUND : address)
