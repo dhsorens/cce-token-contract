@@ -18,6 +18,9 @@ type create_project = create list
 type mint_tokens    = mint list
 type bury_carbon    = bury list
 
+type update_permissions = 
+| MintingPermissions of token * nat
+| ProjectWhitelist of project_owner * create_project
 
 // This contract keeps the admin's (the company's) address as well 
 //   as a big map of all the projects.
@@ -26,6 +29,8 @@ type bury_carbon    = bury list
 type storage = {
     admin : address ;
     projects : (project_owner, project_address) big_map ;
+    minting_permissions : (token, nat) big_map ; 
+    project_whitelist : (project_owner, create_project) big_map ;
     c4x_address : address ;
 }
 
@@ -34,9 +39,10 @@ type storage = {
  * ============================================================================= *)
 
 type entrypoint = 
-| CreateProject of create_project 
+| CreateProject of unit 
 | MintTokens of mint_tokens
 | BuryCarbon of bury_carbon 
+| UpdatePermissions of update_permissions 
 | UpdateC4XAddress of address
 
 type result = (operation list) * storage
@@ -81,8 +87,13 @@ let param_to_burn (b : bury) : operation =
 //   pair will correspond with a project's "zone", which has its unique token id ( : nat )
 //   and token metadata. Token metadata has type (string, bytes) map
 // type create_project = (nat * token_metadata) list
-let create_project (param : create_project) (storage : storage) : result = 
+let create_project (_ : unit) (storage : storage) : result = 
+    // pull the project from the whitelist
     let owner = Tezos.source in 
+    let (param, project_whitelist) = 
+        match Big_map.get_and_update owner (None : create_project option) storage.project_whitelist with 
+        | (None, w) -> (failwith error_PERMISSIONS_DENIED : create_project * (project_owner, create_project) big_map)
+        | (Some p, w) -> (p, w) in 
     // check the project owner doesn't already have a project 
     if Big_map.mem owner storage.projects then (failwith error_COLLISION : result) else
     // construct the initial storage for your project's FA2 contract
@@ -91,11 +102,11 @@ let create_project (param : create_project) (storage : storage) : result =
     let metadata = 
         List.fold_left 
         (fun (acc, c : ((fa2_token_id, token_metadata) big_map) * create ) 
-            -> Big_map.update c.token_id (Some c.token_metadata : (string, bytes) map option) acc ) // ensures no duplicate token ids 
+            -> Big_map.update c.token_id (Some c.token_metadata) acc ) // ensures no duplicate token ids 
         (Big_map. empty : (fa2_token_id, token_metadata) big_map)
         param in 
     // initiate an FA2 contract w/permissions given to project contract
-    let fa2_init_storage : storage_fa2 = {
+    let fa2_init_storage = {
         carbon_contract = Tezos.self_address ;
         ledger = ledger ;
         operators = operators ;
@@ -103,19 +114,20 @@ let create_project (param : create_project) (storage : storage) : result =
     let (op_new_fa2,addr_new_fa2) = 
         deploy_carbon_fa2 (None : key_hash option) 0tez fa2_init_storage in
     // update the c4x whitelist
-    let txndata_whitelist : (token * (unit option)) list = 
+    let txndata_whitelist = 
         List.map
         (fun (c : create) -> 
             ({ token_address = addr_new_fa2 ; token_id = c.token_id ; }, (Some ())) )
         param in
-    let entrypoint_whitelist : (token * (unit option)) list contract =
+    let entrypoint_whitelist =
         match (Tezos.get_entrypoint_opt "%whitelistTokens" storage.c4x_address : (token * (unit option)) list contract option) with
         | None -> (failwith error_COULD_NOT_GET_ENTRYPOINT : (token * (unit option)) list contract)
         | Some e -> e in 
     let op_whitelist = Tezos.transaction txndata_whitelist 0tez entrypoint_whitelist in
     // update the local storage
     let storage = { storage with 
-        projects = Big_map.update owner (Some addr_new_fa2 : project_address option) storage.projects ; } in 
+        projects = Big_map.update owner (Some addr_new_fa2) storage.projects ; 
+        project_whitelist = project_whitelist ; } in 
     ([ op_new_fa2 ; op_whitelist ; ], storage)
 
 
@@ -123,13 +135,26 @@ let create_project (param : create_project) (storage : storage) : result =
 //      The input type mint_tokens is a list of triples: (address * nat * nat) list
 //      This denotes the to-be owner of the minted tokens, the token id, and the amount, in that order
 //      A project owner can submit multiple mints by including them all as a list
-let mint_tokens (param : mint_tokens) (storage : storage) : result = 
+let mint_tokens (param : mint_tokens) (storage : storage) : result =    
     let proj_owner = Tezos.sender in 
-    // TODO: permissions to regulate minting 
     let addr_proj : address =
         match Big_map.find_opt proj_owner storage.projects with
         | None -> (failwith error_PROJECT_NOT_FOUND : address)
         | Some a -> a in 
+    // check permissions and update storage.minting_permissions to reflect minted tokens
+    let storage =
+        List.fold_left
+        (fun (s, m : storage * mint) -> 
+            let token = { token_address = addr_proj ; token_id = m.token_id ; } in 
+            let new_allowance = 
+                match Big_map.find_opt token s.minting_permissions with 
+                | None -> 0n - m.qty
+                | Some b -> b - m.qty in 
+            if new_allowance < 0 then (failwith error_PERMISSIONS_DENIED : storage) else 
+            { s with minting_permissions = Big_map.update token (Some (abs new_allowance)) s.minting_permissions ; })
+        storage
+        param in 
+    // mint tokens
     let txndata_mint = param in 
     let entrypoint_mint =
         match (Tezos.get_entrypoint_opt "%mint" addr_proj : mint_tokens contract option) with 
@@ -148,6 +173,32 @@ let mint_tokens (param : mint_tokens) (storage : storage) : result =
 let bury_carbon (param : bury_carbon) (storage : storage) : result = 
     let ops_burn = List.map param_to_burn param in 
     (ops_burn, storage)
+
+// update permissions entrypoint
+// the admin can use this entrypoint to give minting priveleges and to
+// update the project whitelist
+let update_permisssions (param : update_permissions) (storage : storage) : result = 
+    // check permissions
+    if Tezos.sender <> storage.admin then (failwith error_PERMISSIONS_DENIED : result) else
+    // update permissions
+    match param with 
+    | MintingPermissions (token, qty) -> 
+        ([] : operation list), 
+        { storage with 
+          minting_permissions =
+            let current_qty = 
+                match Big_map.find_opt token storage.minting_permissions with 
+                | None -> 0n
+                | Some b -> b in 
+            Big_map.update token (Some (current_qty + qty)) storage.minting_permissions }
+    | ProjectWhitelist (project_owner, project_data) ->
+        // check for collisions
+        if Big_map.mem project_owner storage.project_whitelist then (failwith error_COLLISION : result) else 
+        if Big_map.mem project_owner storage.projects then (failwith error_COLLISION : result) else 
+        // update storage
+        ([] : operation list),
+        { storage with 
+            project_whitelist = Big_map.update project_owner (Some project_data) storage.project_whitelist }
 
 // This is a function for bootstrapping these contracts onto the chain, since both
 // the carbon contract and the c4x contract need to know each other's addresses
@@ -177,5 +228,7 @@ let main (entrypoint, storage : entrypoint * storage) : result =
         mint_tokens param storage
     | BuryCarbon param ->
         bury_carbon param storage
+    | UpdatePermissions param -> 
+        update_permisssions param storage
     | UpdateC4XAddress param ->
         update_c4x_address param storage
