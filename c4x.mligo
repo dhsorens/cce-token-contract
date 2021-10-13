@@ -231,7 +231,7 @@ let bid_on_auction (token : token_for_sale) (storage : storage) : result =
     if data.deadline <= Tezos.now then (failwith error_AUCTION_IS_OVER : result) else 
     // if the bid isn't at least 1% higher than the leading bid, the transaction fails
     let bid = Tezos.amount in 
-    if bid < data.leading_bid * 1mutez / 100n then (failwith error_BID_TOO_LOW : result) else 
+    if bid < (data.leading_bid * 1mutez) / 100n then (failwith error_BID_TOO_LOW : result) else 
     // update the storage to include the new leader
     let tokens_on_auction = 
         Big_map.update 
