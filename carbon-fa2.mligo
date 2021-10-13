@@ -276,6 +276,7 @@ let get_metadata (param : get_metadata) (storage : storage) : result =
 // governing this process
 // If there is a collision on token ids, this entrypoint will return a failwith
 let add_zone (param : token_data list) (storage : storage) : result = 
+    if Tezos.sender <> storage.carbon_contract then (failwith error_PERMISSIONS_DENIED : result) else
     let storage = 
         List.fold_left
         (fun (s, d : storage * token_data) -> 

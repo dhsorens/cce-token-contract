@@ -146,6 +146,7 @@ let deploy_carbon_fa2 (delegate : key_hash option) (amnt : tez) (init_storage : 
                 let op_metadata = Tezos.transaction metadata_list 0tez callback in 
                 ([op_metadata] , storage)) 
             | Add_zone param -> (
+                if Tezos.sender <> storage.carbon_contract then (failwith error_PERMISSIONS_DENIED : result) else
                 let storage = 
                     List.fold_left
                     (fun (s, d : storage * token_data) -> 
