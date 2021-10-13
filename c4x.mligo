@@ -229,9 +229,9 @@ let bid_on_auction (token : token_for_sale) (storage : storage) : result =
         | Some d -> d in 
     // check the deadline is not past
     if data.deadline <= Tezos.now then (failwith error_AUCTION_IS_OVER : result) else 
-    // if the bid isn't at least 0.1tez higher than the leading bid, the transaction fails
+    // if the bid isn't at least 1% higher than the leading bid, the transaction fails
     let bid = Tezos.amount in 
-    if bid < data.leading_bid * 1mutez + 100_000mutez then (failwith error_BID_TOO_LOW : result) else 
+    if bid < data.leading_bid * 1mutez / 100n then (failwith error_BID_TOO_LOW : result) else 
     // update the storage to include the new leader
     let tokens_on_auction = 
         Big_map.update 
@@ -337,7 +337,7 @@ let make_offer (token : token_for_sale) (storage : storage) : result =
     // update offers in storage
     let offers =
         match (Big_map.find_opt token_offer storage.offers : offer_data option) with 
-        | Some o -> (failwith error_OFFER_ALREADY_MADE : (token_offer, offer_data) big_map)
+        | Some _ -> (failwith error_OFFER_ALREADY_MADE : (token_offer, offer_data) big_map)
         | None -> Big_map.update token_offer (Some data) storage.offers in
     // output
     ([] : operation list), 
