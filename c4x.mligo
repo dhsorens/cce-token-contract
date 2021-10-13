@@ -239,8 +239,10 @@ let bid_on_auction (token : token_for_sale) (storage : storage) : result =
         (Some { data with 
             leader = Tezos.sender ; 
             leading_bid = (bid / 1mutez) ; 
-            leader_to_pay = data.leading_bid ; // you only pay the second highest bid
-            deadline = if data.deadline - Tezos.now < 300 then data.deadline + 300 else data.deadline ; }) 
+            // you only pay the second highest bid
+            leader_to_pay = data.leading_bid ;
+            // add five mins to the deadline for bids made in the last five mins to prevent sniping
+            deadline = if data.deadline - Tezos.now < 300 then data.deadline + 300 else data.deadline ; })
         storage.tokens_on_auction in
     // if the bid is higher than the leader's bid, return the leader's cash
     if data.leader = token.owner && data.leading_bid = data.reserve_price // no one has bid
