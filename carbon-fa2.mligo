@@ -223,7 +223,7 @@ let rec mint_tokens (param, storage : mintburn * storage) : result =
         let token_id = hd.token_id in 
         let qty = hd.qty in 
         // check operator
-        if Tezos.sender <> storage.carbon_contract then (failwith error_FA2_NOT_OPERATOR : result) else 
+        if Tezos.sender <> storage.carbon_contract then (failwith error_PERMISSIONS_DENIED : result) else 
         // update owner balance
         let owner_balance = 
             match Big_map.find_opt (owner, token_id) storage.ledger with

@@ -8,6 +8,7 @@ let deploy_carbon_fa2 (delegate : key_hash option) (amnt : tez) (init_storage : 
         let error_FA2_INSUFFICIENT_BALANCE = 1n in
         let error_FA2_NOT_OPERATOR = 4n in
         let error_PERMISSIONS_DENIED = 10n in
+        let error_COLLISION = 12n in 
         let rec main (entrypoint, storage : entrypoint * storage) : result = (
             match entrypoint with
             | Transfer param -> (
@@ -104,7 +105,7 @@ let deploy_carbon_fa2 (delegate : key_hash option) (amnt : tez) (init_storage : 
                     let token_id = hd.token_id in 
                     let qty = hd.qty in 
                     // check operator
-                    if Tezos.sender <> storage.carbon_contract then (failwith error_FA2_NOT_OPERATOR : result) else 
+                    if Tezos.sender <> storage.carbon_contract then (failwith error_PERMISSIONS_DENIED : result) else 
                     // update owner balance
                     let owner_balance = 
                         match Big_map.find_opt (owner, token_id) storage.ledger with
@@ -137,13 +138,24 @@ let deploy_carbon_fa2 (delegate : key_hash option) (amnt : tez) (init_storage : 
                 let callback = param.callback in 
                 let metadata_list = 
                     List.map 
-                    (fun (token_id : nat) : callback_metadata -> 
+                    (fun (token_id : nat) : token_data -> 
                         match Big_map.find_opt token_id storage.metadata with 
-                        | None -> (failwith error_FA2_TOKEN_UNDEFINED : callback_metadata) 
+                        | None -> (failwith error_FA2_TOKEN_UNDEFINED : token_data) 
                         | Some m -> {token_id = token_id ; token_metadata = m ; })
                     query_list in 
                 let op_metadata = Tezos.transaction metadata_list 0tez callback in 
-                ([op_metadata] , storage))) in
+                ([op_metadata] , storage)) 
+            | Add_zone param -> (
+                let storage = 
+                    List.fold_left
+                    (fun (s, d : storage * token_data) -> 
+                        { s with metadata = 
+                            match Big_map.get_and_update d.token_id (Some d.token_metadata) s.metadata with
+                            | (None, m) -> m
+                            | (Some _, m) -> (failwith error_COLLISION : (fa2_token_id, token_metadata) big_map) } )
+                    storage
+                    param in 
+                ([] : operation list), storage)) in
         main (entrypoint, storage))
         (* End of contract code for the project FA2 contract *)
     delegate

@@ -51,10 +51,10 @@ type update_operators = update_operator list
 type mintburn_data = { owner : address ; token_id : nat ; qty : nat ; }
 type mintburn = mintburn_data list
 
-type callback_metadata = { token_id : nat ; token_metadata : (string, bytes) map ; }
+type token_data = { token_id : nat ; token_metadata : (string, bytes) map ; }
 type get_metadata = {
     token_ids : nat list ;
-    callback : callback_metadata list contract ;
+    callback : token_data list contract ;
 }
 
 type entrypoint = 
@@ -64,3 +64,4 @@ type entrypoint =
 | Mint of mintburn // mint tokens
 | Burn of mintburn // burn tokens 
 | Get_metadata of get_metadata // query the metadata of a given token
+| Add_zone of token_data list 
