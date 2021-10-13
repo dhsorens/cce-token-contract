@@ -35,6 +35,9 @@ It also allows a prospective buyer to:
 1. Participate in an auction 
 1. Make an offer to a prospective seller for their carbon tokens
 
+## Permissions
+Users need permission from the `carbon` contract admin to create a project, mint tokens, and to add zones to their project. To do any of these things, the project owner still interacts with the `carbon` contract using the `%createProject`, `%mintTokens`, and `%addZones` entrypoints respectively, but first the admin must use the `%updatePermissions` entrypoint to specify the allowed project's token IDs and metadata, and the minting limit.
+
 ## FA2 Functionality
 
 Projects are managed by an FA2 contract with all the standard entrypoints. Thus users and token holders can manage their tokens, i.e. with the `Transfer` or `Balance_of` entrypoints. This makes these carbon tokens composable with other on-chain applications.
