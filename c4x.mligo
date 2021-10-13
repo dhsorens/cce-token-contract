@@ -28,7 +28,8 @@ type offer_data = { quote : nat ; }
 
 type auction_data = { 
     leader : address ; 
-    leading_bid : nat ;
+    leading_bid : nat ; // the leader's bid 
+    leader_to_pay : nat ; // what the leader would pay if they won
     deadline : timestamp ; // the end of the auction
     reserve_price : nat ; // in mutez
 }
@@ -212,6 +213,7 @@ let initiate_auction (token, data : token_for_sale * auction_data) (storage : st
     let init_data : auction_data = {
         leader = Tezos.sender ; 
         leading_bid = data.reserve_price ;
+        leader_to_pay = data.reserve_price ;
         deadline = data.deadline ;
         reserve_price = data.reserve_price ; } in
     // output
@@ -225,30 +227,36 @@ let bid_on_auction (token : token_for_sale) (storage : storage) : result =
         match (Big_map.find_opt token storage.tokens_on_auction : auction_data option) with
         | None -> (failwith error_AUCTIONED_TOKEN_NOT_FOUND : auction_data)
         | Some d -> d in 
-    let leader = data.leader in 
-    let leading_bid = data.leading_bid in 
     // check the deadline is not past
     if data.deadline <= Tezos.now then (failwith error_AUCTION_IS_OVER : result) else 
     // if the bid isn't at least 0.1tez higher than the leading bid, the transaction fails
     let bid = Tezos.amount in 
-    if bid < leading_bid * 1mutez + 100_000mutez then (failwith error_BID_TOO_LOW : result) else 
+    if bid < data.leading_bid * 1mutez + 100_000mutez then (failwith error_BID_TOO_LOW : result) else 
     // update the storage to include the new leader
-    let new_data = { data with leader = Tezos.sender ; leading_bid = (bid / 1mutez) ; } in 
-    let new_tokens_on_auction = Big_map.update token (Some new_data) storage.tokens_on_auction in
+    let tokens_on_auction = 
+        Big_map.update 
+        token 
+        (Some { data with 
+            leader = Tezos.sender ; 
+            leading_bid = (bid / 1mutez) ; 
+            leader_to_pay = data.leading_bid ; // you only pay the second highest bid
+            deadline = if data.deadline - Tezos.now < 300 then data.deadline + 300 else data.deadline ; }) 
+        storage.tokens_on_auction in
     // if the bid is higher than the leader's bid, return the leader's cash
-    if leader = token.owner && leading_bid = data.reserve_price // no one has bid
+    if data.leader = token.owner && data.leading_bid = data.reserve_price // no one has bid
     then
         ([] : operation list),
-        { storage with tokens_on_auction = new_tokens_on_auction ; }
+        { storage with tokens_on_auction = tokens_on_auction ; }
     else 
         let entrypoint_returnOldBid : unit contract =
-            match (Tezos.get_contract_opt leader : unit contract option) with 
+            match (Tezos.get_contract_opt data.leader : unit contract option) with 
             | None -> (failwith error_INVALID_ADDRESS : unit contract)
             | Some e -> e in
-        let op_returnOldBid = Tezos.transaction () (leading_bid * 1mutez) entrypoint_returnOldBid in 
+        let op_returnOldBid = Tezos.transaction () (data.leading_bid * 1mutez) entrypoint_returnOldBid in 
 
         [ op_returnOldBid ; ], 
-        { storage with tokens_on_auction = new_tokens_on_auction ; }
+        { storage with 
+            tokens_on_auction = tokens_on_auction ; }
 
 
 let finish_auction (token : token_for_sale) (storage : storage) : result = 
@@ -257,14 +265,12 @@ let finish_auction (token : token_for_sale) (storage : storage) : result =
         match (Big_map.find_opt token storage.tokens_on_auction : auction_data option) with
         | None -> (failwith error_AUCTIONED_TOKEN_NOT_FOUND : auction_data)
         | Some d -> d in 
-    let leader = data.leader in 
-    let leading_bid = data.leading_bid in // in mutez
     // check the deadline has not passed
     if data.deadline > Tezos.now then (failwith error_AUCTION_NOT_OVER : result) else
     // transfer tokens to the leader
     let txndata_send_tokens = {
         from_ = Tezos.self_address ; 
-        txs = [ { to_ = leader ; token_id = token.token_id ; amount = token.qty ; } ; ] ; } in 
+        txs = [ { to_ = data.leader ; token_id = token.token_id ; amount = token.qty ; } ; ] ; } in 
     let entrypoint_send_tokens =
         match (Tezos.get_entrypoint_opt "%transfer" token.token_address : transfer list contract option) with 
         | None -> (failwith error_NO_TOKEN_CONTRACT_FOUND : transfer list contract)
@@ -274,7 +280,7 @@ let finish_auction (token : token_for_sale) (storage : storage) : result =
     // remove this token from storage 
     let new_tokens_on_auction = Big_map.update token (None : auction_data option) storage.tokens_on_auction in  
     // transfer highest bid to the owner
-    if leader = token.owner && leading_bid = data.reserve_price // no one ever bid
+    if data.leader = token.owner && data.leading_bid = data.reserve_price // no one ever bid
     then 
         [ op_send_tokens ; ],
         { storage with tokens_on_auction = new_tokens_on_auction ; }
@@ -285,9 +291,17 @@ let finish_auction (token : token_for_sale) (storage : storage) : result =
             | None -> (failwith error_INVALID_ADDRESS : unit contract)
             | Some e -> e
         ) in
-        let op_payout = Tezos.transaction () (leading_bid * 1mutez) entrypoint_payout in 
+        let op_payout = Tezos.transaction () (data.leader_to_pay * 1mutez) entrypoint_payout in 
+        // send the refund to the leader, as they pay the second highest price
+        let entrypoint_refund : unit contract = (
+            match (Tezos.get_contract_opt data.leader : unit contract option) with
+            | None -> (failwith error_INVALID_ADDRESS : unit contract)
+            | Some e -> e
+        ) in
+        let refund = abs (data.leading_bid - data.leader_to_pay) * 1mutez in 
+        let op_refund = Tezos.transaction () refund entrypoint_refund in 
         
-        [ op_send_tokens ; op_payout ; ],
+        [ op_send_tokens ; op_payout ; op_refund ; ],
         { storage with tokens_on_auction = new_tokens_on_auction ; }
 
 let auction (param : auction) (storage : storage) : result = 
