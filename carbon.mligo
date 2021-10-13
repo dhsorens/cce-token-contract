@@ -19,7 +19,7 @@ type mint_tokens    = mint list
 type bury_carbon    = bury list
 
 type update_permissions = 
-| MintingPermissions of token * nat
+| MintingPermissions of token * int
 | ProjectWhitelist of project_owner * create_project
 
 // This contract keeps the admin's (the company's) address as well 
@@ -223,15 +223,12 @@ let update_permisssions (param : update_permissions) (storage : storage) : resul
         ([] : operation list), 
         { storage with 
           minting_permissions =
-            let current_qty = 
+            let new_allowance = 
                 match Big_map.find_opt token storage.minting_permissions with 
-                | None -> 0n
-                | Some b -> b in 
-            Big_map.update token (Some (current_qty + qty)) storage.minting_permissions }
+                | None -> abs (0 + qty)
+                | Some b -> abs (int(b) + qty) in 
+            Big_map.update token (Some new_allowance) storage.minting_permissions }
     | ProjectWhitelist (project_owner, project_data) ->
-        // check for collisions
-        if Big_map.mem project_owner storage.project_whitelist then (failwith error_COLLISION : result) else 
-        if Big_map.mem project_owner storage.projects then (failwith error_COLLISION : result) else 
         // update storage
         ([] : operation list),
         { storage with 
@@ -240,10 +237,10 @@ let update_permisssions (param : update_permissions) (storage : storage) : resul
 // This is a function for bootstrapping these contracts onto the chain, since both
 // the carbon contract and the c4x contract need to know each other's addresses
 let update_c4x_address (c4x_address : address) (storage : storage) : result = 
-    let null_address = ("tz1Ke2h7sDdakHJQh8WX4Z372du1KChsksyU" : address) in 
     // check permissions
     if Tezos.sender <> storage.admin then (failwith error_PERMISSIONS_DENIED : result) else
     // this address can only change once
+    let null_address = ("tz1Ke2h7sDdakHJQh8WX4Z372du1KChsksyU" : address) in 
     if storage.c4x_address <> null_address 
     then ([] : operation list), storage
     else ([] : operation list), { storage with c4x_address = c4x_address ; }
