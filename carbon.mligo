@@ -29,8 +29,11 @@ type update_permissions =
 type storage = {
     admin : address ;
     projects : (project_owner, project_address) big_map ;
+    // keeps track of the number of outstanding "mintable" tokens
     minting_permissions : (token, nat) big_map ; 
+    // to create a project the admin must preapprove the project and metadata
     project_whitelist : (project_owner, create_project) big_map ;
+    // the address of the marketplace contract
     c4x_address : address ;
 }
 
@@ -40,6 +43,7 @@ type storage = {
 
 type entrypoint = 
 | CreateProject of unit 
+| AddZone of unit
 | MintTokens of mint_tokens
 | BuryCarbon of bury_carbon 
 | UpdatePermissions of update_permissions 
@@ -130,6 +134,28 @@ let create_project (_ : unit) (storage : storage) : result =
         project_whitelist = project_whitelist ; } in 
     ([ op_new_fa2 ; op_whitelist ; ], storage)
 
+// This entrypoint allows project owners to add zones (token ids) to their project
+// To do so, they pull pre-approved new zones from the whitelist and then send a transaction 
+// to their project's FA2 contract, which updates the token ids. 
+// If there is a collision on token ids then the FA2 contract will fail the transaction
+let add_zone (_ : unit) (storage : storage) : result = 
+    let proj_owner = Tezos.sender in 
+    let addr_proj =
+        match Big_map.find_opt proj_owner storage.projects with
+        | None -> (failwith error_PROJECT_NOT_FOUND : address)
+        | Some a -> a in 
+    // additional zones can be provided by updating the project whitelist 
+    let (txndata_addZone, project_whitelist) = 
+        match Big_map.get_and_update proj_owner (None : create_project option) storage.project_whitelist with 
+        | (None, w) -> (failwith error_PROJECT_NOT_FOUND : create_project * (project_owner, create_project) big_map)
+        | (Some c, w) -> (c, w) in 
+    let entrypoint_addZone = 
+        match (Tezos.get_entrypoint_opt "%add_zone" addr_proj : create_project contract option) with
+        | None -> (failwith error_COULD_NOT_GET_ENTRYPOINT : create_project contract)
+        | Some c -> c in 
+    let op_addZone = 
+        Tezos.transaction txndata_addZone 0tez entrypoint_addZone in 
+    ([ op_addZone ; ], { storage with project_whitelist = project_whitelist ; })
 
 //  The entrypoint function that a project owner uses to mint new tokens 
 //      The input type mint_tokens is a list of triples: (address * nat * nat) list
@@ -137,7 +163,7 @@ let create_project (_ : unit) (storage : storage) : result =
 //      A project owner can submit multiple mints by including them all as a list
 let mint_tokens (param : mint_tokens) (storage : storage) : result =    
     let proj_owner = Tezos.sender in 
-    let addr_proj : address =
+    let addr_proj =
         match Big_map.find_opt proj_owner storage.projects with
         | None -> (failwith error_PROJECT_NOT_FOUND : address)
         | Some a -> a in 
@@ -224,6 +250,8 @@ let main (entrypoint, storage : entrypoint * storage) : result =
     match entrypoint with 
     | CreateProject param ->
         create_project param storage
+    | AddZone param ->
+        add_zone param storage
     | MintTokens param ->
         mint_tokens param storage
     | BuryCarbon param ->

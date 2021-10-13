@@ -60,10 +60,10 @@ type update_operators = update_operator list
 type mintburn_data = { owner : address ; token_id : nat ; qty : nat ; }
 type mintburn = mintburn_data list
 
-type callback_metadata = { token_id : nat ; token_metadata : (string, bytes) map ; }
+type token_data = { token_id : nat ; token_metadata : (string, bytes) map ; }
 type get_metadata = {
     token_ids : nat list ;
-    callback : callback_metadata list contract ;
+    callback : token_data list contract ;
 }
 
 type entrypoint = 
@@ -73,6 +73,7 @@ type entrypoint =
 | Mint of mintburn // mint tokens
 | Burn of mintburn // burn tokens 
 | Get_metadata of get_metadata // query the metadata of a given token
+| Add_zone of token_data list 
 
 
 (* =============================================================================
@@ -91,6 +92,7 @@ let error_FA2_RECEIVER_HOOK_UNDEFINED = 8n // Receiver hook is required by the p
 let error_FA2_SENDER_HOOK_UNDEFINED = 9n // Sender hook is required by the permission behavior, but is not implemented by a sender contract
 let error_PERMISSIONS_DENIED = 10n // General catch-all for operator-related permission errors
 let error_ID_ALREADY_IN_USE = 11n // A token ID can only be used once, error if a user wants to add a token ID that's already there
+let error_COLLISION = 12n
 
 (* =============================================================================
  * Aux Functions
@@ -261,13 +263,31 @@ let get_metadata (param : get_metadata) (storage : storage) : result =
     let callback = param.callback in 
     let metadata_list = 
         List.map 
-        (fun (token_id : nat) : callback_metadata -> 
+        (fun (token_id : nat) : token_data -> 
             match Big_map.find_opt token_id storage.metadata with 
-            | None -> (failwith error_FA2_TOKEN_UNDEFINED : callback_metadata) 
+            | None -> (failwith error_FA2_TOKEN_UNDEFINED : token_data) 
             | Some m -> {token_id = token_id ; token_metadata = m ; })
         query_list in 
     let op_metadata = Tezos.transaction metadata_list 0tez callback in 
     ([op_metadata] , storage)
+
+// This entrypoint allows project owners to add zones (token ids) to their project
+// This transaction has to come from the carbon contract, which has a set of preapproval rules 
+// governing this process
+// If there is a collision on token ids, this entrypoint will return a failwith
+let add_zone (param : token_data list) (storage : storage) : result = 
+    let storage = 
+        List.fold_left
+        (fun (s, d : storage * token_data) -> 
+            { s with metadata = 
+                match Big_map.get_and_update d.token_id (Some d.token_metadata) s.metadata with
+                | (None, m) -> m
+                | (Some _, m) -> (failwith error_COLLISION : (fa2_token_id, token_metadata) big_map) } )
+        storage
+        param in 
+    ([] : operation list), storage
+
+
 
 (* =============================================================================
  * Main
@@ -287,3 +307,5 @@ let rec main ((entrypoint, storage) : entrypoint * storage) : result =
         main (Transfer( [burn_tokens param storage] ), storage)
     | Get_metadata param ->
         get_metadata param storage
+    | Add_zone param ->
+        add_zone param storage
