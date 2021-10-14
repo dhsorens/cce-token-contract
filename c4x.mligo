@@ -231,16 +231,16 @@ let bid_on_auction (token : token_for_sale) (storage : storage) : result =
     if data.deadline <= Tezos.now then (failwith error_AUCTION_IS_OVER : result) else 
     // if the bid isn't at least 1% higher than the leading bid, the transaction fails
     let bid = Tezos.amount in 
-    if bid < (data.leading_bid * 1mutez) / 100n then (failwith error_BID_TOO_LOW : result) else 
+    if bid < (data.leader_to_pay * 1mutez) / 100n then (failwith error_BID_TOO_LOW : result) else 
     // update the storage to include the new leader
     let tokens_on_auction = 
         Big_map.update 
         token 
         (Some { data with 
             leader = Tezos.sender ; 
-            leading_bid = (bid / 1mutez) ; 
+            leading_bid = if bid > data.leading_bid * 1mutez then bid / 1mutez else data.leading_bid ; 
             // you only pay the second highest bid
-            leader_to_pay = data.leading_bid ;
+            leader_to_pay = if bid > data.leading_bid * 1mutez then data.leading_bid else bid / 1mutez ;
             // add five mins to the deadline for bids made in the last five mins to prevent sniping
             deadline = if data.deadline - Tezos.now < 300 then data.deadline + 300 else data.deadline ; })
         storage.tokens_on_auction in
