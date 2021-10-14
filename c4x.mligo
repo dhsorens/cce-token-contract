@@ -29,7 +29,6 @@ type offer_data = { quote : nat ; }
 type auction_data = { 
     leader : address ; 
     leading_bid : nat ; // the leader's bid 
-    leader_to_pay : nat ; // what the leader would pay if they won
     deadline : timestamp ; // the end of the auction
     reserve_price : nat ; // in mutez
 }
@@ -213,7 +212,6 @@ let initiate_auction (token, data : token_for_sale * auction_data) (storage : st
     let init_data : auction_data = {
         leader = Tezos.sender ; 
         leading_bid = data.reserve_price ;
-        leader_to_pay = data.reserve_price ;
         deadline = data.deadline ;
         reserve_price = data.reserve_price ; } in
     // output
@@ -231,16 +229,14 @@ let bid_on_auction (token : token_for_sale) (storage : storage) : result =
     if data.deadline <= Tezos.now then (failwith error_AUCTION_IS_OVER : result) else 
     // if the bid isn't at least 1% higher than the leading bid, the transaction fails
     let bid = Tezos.amount in 
-    if bid < (data.leader_to_pay * 1mutez) / 100n then (failwith error_BID_TOO_LOW : result) else 
+    if bid < (data.leading_bid * 1mutez * 101n) / 100n then (failwith error_BID_TOO_LOW : result) else 
     // update the storage to include the new leader
     let tokens_on_auction = 
         Big_map.update 
         token 
         (Some { data with 
             leader = Tezos.sender ; 
-            leading_bid = if bid > data.leading_bid * 1mutez then bid / 1mutez else data.leading_bid ; 
-            // you only pay the second highest bid
-            leader_to_pay = if bid > data.leading_bid * 1mutez then data.leading_bid else bid / 1mutez ;
+            leading_bid = bid / 1mutez ; 
             // add five mins to the deadline for bids made in the last five mins to prevent sniping
             deadline = if data.deadline - Tezos.now < 300 then data.deadline + 300 else data.deadline ; })
         storage.tokens_on_auction in
@@ -293,17 +289,9 @@ let finish_auction (token : token_for_sale) (storage : storage) : result =
             | None -> (failwith error_INVALID_ADDRESS : unit contract)
             | Some e -> e
         ) in
-        let op_payout = Tezos.transaction () (data.leader_to_pay * 1mutez) entrypoint_payout in 
-        // send the refund to the leader, as they pay the second highest price
-        let entrypoint_refund : unit contract = (
-            match (Tezos.get_contract_opt data.leader : unit contract option) with
-            | None -> (failwith error_INVALID_ADDRESS : unit contract)
-            | Some e -> e
-        ) in
-        let refund = abs (data.leading_bid - data.leader_to_pay) * 1mutez in 
-        let op_refund = Tezos.transaction () refund entrypoint_refund in 
-        
-        [ op_send_tokens ; op_payout ; op_refund ; ],
+        let op_payout = Tezos.transaction () (data.leading_bid * 1mutez) entrypoint_payout in 
+
+        [ op_send_tokens ; op_payout ; ],
         { storage with tokens_on_auction = new_tokens_on_auction ; }
 
 let auction (param : auction) (storage : storage) : result = 
