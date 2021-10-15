@@ -39,6 +39,7 @@ type storage = {
     tokens_on_auction : (token_for_sale, auction_data) big_map ;
     offers : (token_offer, offer_data) big_map ;
     token_whitelist : (token, unit) big_map ; 
+    null_address : address ;
 }
 
 (* =============================================================================
@@ -53,10 +54,11 @@ type for_sale =
 | UnpostForSale of token_for_sale
 | BuyForSale    of token_for_sale
 
+type finish_auction = | RedeemTokens of token_for_sale | RedeemBid of token_for_sale
 type auction = 
 | InitiateAuction of token_for_sale * auction_data
 | BidOnAuction    of token_for_sale
-| FinishAuction   of token_for_sale
+| FinishAuction   of finish_auction
 
 type offer = 
 | MakeOffer    of token_for_sale
@@ -256,15 +258,15 @@ let bid_on_auction (token : token_for_sale) (storage : storage) : result =
         { storage with 
             tokens_on_auction = tokens_on_auction ; }
 
-
-let finish_auction (token : token_for_sale) (storage : storage) : result = 
-    // send tokens to the leader
+// the auction winner can redeem their tokens
+let redeem_tokens (token : token_for_sale) (storage : storage) : result = 
     let data =
         match (Big_map.find_opt token storage.tokens_on_auction : auction_data option) with
         | None -> (failwith error_AUCTIONED_TOKEN_NOT_FOUND : auction_data)
         | Some d -> d in 
-    // check the deadline has not passed
-    if data.deadline > Tezos.now then (failwith error_AUCTION_NOT_OVER : result) else
+    // check permissions and that the deadline has passed
+    if Tezos.sender <> data.leader then (failwith error_PERMISSIONS_DENIED : result) else
+    if Tezos.now < data.deadline then (failwith error_AUCTION_NOT_OVER : result) else
     // transfer tokens to the leader
     let txndata_send_tokens = {
         from_ = Tezos.self_address ; 
@@ -275,13 +277,35 @@ let finish_auction (token : token_for_sale) (storage : storage) : result =
         | Some e -> e in 
     let op_send_tokens = 
         Tezos.transaction [txndata_send_tokens] 0tez entrypoint_send_tokens in 
+    // update storage to reflect this
+    let tokens_on_auction = 
+        if token.owner = storage.null_address then
+        // the owner has already redeemed the highest bid, so simply remove from storage
+        Big_map.update token (None : auction_data option) storage.tokens_on_auction else
+        // the owner hasn't redeemed the highest bid, so change leader to null_address
+        Big_map.update token (Some {data with leader = storage.null_address}) storage.tokens_on_auction in 
+    [ op_send_tokens ],
+    { storage with tokens_on_auction = tokens_on_auction ; }
+    
+
+// the auction initiator can collect the highest bid at the end of the auction
+let redeem_bid (token : token_for_sale) (storage : storage) : result = 
+    // send winning bid to the owner
+    let data =
+        match (Big_map.find_opt token storage.tokens_on_auction : auction_data option) with
+        | None -> (failwith error_AUCTIONED_TOKEN_NOT_FOUND : auction_data)
+        | Some d -> d in 
+    // check permissions and that the deadline has passed
+    if Tezos.sender <> token.owner then (failwith error_PERMISSIONS_DENIED : result) else
+    if data.deadline > Tezos.now then (failwith error_AUCTION_NOT_OVER : result) else
     // remove this token from storage 
-    let new_tokens_on_auction = Big_map.update token (None : auction_data option) storage.tokens_on_auction in  
+    let tokens_on_auction = Big_map.update token (None : auction_data option) storage.tokens_on_auction in  
     // transfer highest bid to the owner
-    if data.leader = token.owner && data.leading_bid = data.reserve_price // no one ever bid
+    if data.leader = token.owner && data.leading_bid = data.reserve_price
     then 
-        [ op_send_tokens ; ],
-        { storage with tokens_on_auction = new_tokens_on_auction ; }
+        // no one ever bid
+        ([] : operation list),
+        { storage with tokens_on_auction = tokens_on_auction ; }
     else 
         // send the highest bid along to token.owner
         let entrypoint_payout : unit contract = (
@@ -290,9 +314,15 @@ let finish_auction (token : token_for_sale) (storage : storage) : result =
             | Some e -> e
         ) in
         let op_payout = Tezos.transaction () (data.leading_bid * 1mutez) entrypoint_payout in 
+        // there was a nontrivial bid 
+        let tokens_on_auction = 
+            // the leader already redeemed their tokens, so just remove this auction from storage
+            if data.leader = storage.null_address then tokens_on_auction else
+            // the leader hasn't redeemed their tokens, so change owner to null_address
+            Big_map.update {token with owner = storage.null_address} (Some data) tokens_on_auction in 
+        [ op_payout ; ],
+        { storage with tokens_on_auction = tokens_on_auction ; }
 
-        [ op_send_tokens ; op_payout ; ],
-        { storage with tokens_on_auction = new_tokens_on_auction ; }
 
 let auction (param : auction) (storage : storage) : result = 
     match param with 
@@ -301,7 +331,11 @@ let auction (param : auction) (storage : storage) : result =
     | BidOnAuction p ->
         bid_on_auction p storage 
     | FinishAuction p -> 
-        finish_auction p storage 
+        (match p with 
+        | RedeemTokens q -> // for the auction winner 
+            redeem_tokens q storage
+        | RedeemBid q -> // for the auctioned token's owner
+            redeem_bid q storage)
 
 
 (*** **
