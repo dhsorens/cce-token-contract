@@ -26,6 +26,10 @@ type token_offer = {
 }
 type offer_data = { quote : nat ; }
 
+type init_auction_data = {
+    deadline : timestamp ; // the end of an auction
+    reserve_price : nat ; // in mutez
+}
 type auction_data = { 
     leader : address ; 
     leading_bid : nat ; // the leader's bid 
@@ -56,7 +60,7 @@ type for_sale =
 
 type finish_auction = | RedeemTokens of token_for_sale | RedeemBid of token_for_sale
 type auction = 
-| InitiateAuction of token_for_sale * auction_data
+| InitiateAuction of token_for_sale * init_auction_data
 | BidOnAuction    of token_for_sale
 | FinishAuction   of finish_auction
 
@@ -195,7 +199,7 @@ let for_sale (param : for_sale) (storage : storage) : result =
 (*** **
  Auction Entrypoint Functions 
  *** **)
-let initiate_auction (token, data : token_for_sale * auction_data) (storage : storage) : result = 
+let initiate_auction (token, data : token_for_sale * init_auction_data) (storage : storage) : result = 
     // check the deadline is not already passed, for collisions, and that the token is whitelisted
     if data.deadline <= Tezos.now then (failwith error_INVALID_DEADLINE : result) else
     if Big_map.mem token storage.tokens_on_auction then (failwith error_COLLISION : result) else
@@ -213,7 +217,7 @@ let initiate_auction (token, data : token_for_sale * auction_data) (storage : st
     // update the tokens_on_auction big map
     let init_data : auction_data = {
         leader = Tezos.sender ; 
-        leading_bid = data.reserve_price ;
+        leading_bid = 0n ;
         deadline = data.deadline ;
         reserve_price = data.reserve_price ; } in
     // output
@@ -227,11 +231,17 @@ let bid_on_auction (token : token_for_sale) (storage : storage) : result =
         match (Big_map.find_opt token storage.tokens_on_auction : auction_data option) with
         | None -> (failwith error_AUCTIONED_TOKEN_NOT_FOUND : auction_data)
         | Some d -> d in 
-    // check the deadline is not past
+    // check the deadline is not past and that the bidding party is not the owner
     if data.deadline <= Tezos.now then (failwith error_AUCTION_IS_OVER : result) else 
-    // if the bid isn't at least 1% higher than the leading bid, the transaction fails
+    if Tezos.sender = token.owner then (failwith error_PERMISSIONS_DENIED : result) else
+    // check the bid is sufficiently high
     let bid = Tezos.amount in 
-    if bid < (data.leading_bid * 1mutez * 101n) / 100n then (failwith error_BID_TOO_LOW : result) else 
+    let no_one_has_bid = (data.leader = token.owner) in 
+    // if no one has bid, just make sure the bid is at least the reserve price
+    if no_one_has_bid && bid < data.reserve_price * 1mutez 
+        then (failwith error_BID_TOO_LOW : result) else
+    // if someone else has already bid, then a new bid must go up by at least 1%
+    if (not no_one_has_bid) && bid < (data.leading_bid * 1mutez * 101n) / 100n then (failwith error_BID_TOO_LOW : result) else 
     // update the storage to include the new leader
     let tokens_on_auction = 
         Big_map.update 
@@ -243,7 +253,7 @@ let bid_on_auction (token : token_for_sale) (storage : storage) : result =
             deadline = if data.deadline - Tezos.now < 300 then data.deadline + 300 else data.deadline ; })
         storage.tokens_on_auction in
     // if the bid is higher than the leader's bid, return the leader's cash
-    if data.leader = token.owner && data.leading_bid = data.reserve_price // no one has bid
+    if no_one_has_bid
     then
         ([] : operation list),
         { storage with tokens_on_auction = tokens_on_auction ; }
