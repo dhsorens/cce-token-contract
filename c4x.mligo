@@ -47,12 +47,16 @@ type redeemable =
 | XTZ of nat 
 
 type storage = {
-    carbon_contract : address ;
+    // manages different kinds of auctions
     tokens_for_sale : (token_for_sale, sale_data) big_map ;
-    tokens_on_auction : (token_for_sale, auction_data) big_map ;
     offers : (token_offer, offer_data) big_map ;
-    token_whitelist : (token, unit) big_map ; 
+    tokens_on_auction : (token_for_sale, auction_data) big_map ;
     redeem : (address, redeemable list) big_map ;
+    // metadata and minting oracle
+    carbon_contract : address ;
+    // the tokens that are allowed to be traded on this marketplace
+    token_whitelist : (token, unit) big_map ; 
+    // for bootstrapping
     null_address : address ;
 }
 

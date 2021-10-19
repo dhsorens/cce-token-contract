@@ -18,21 +18,24 @@ type create_project = create list
 type mint_tokens    = mint list
 type bury_carbon    = bury list
 
-type update_permissions = 
-| MintingPermissions of token * int
-| ProjectWhitelist of project_owner * create_project
+type approve_token = {
+    token : token ; 
+    // the number of tokens the project owner can mint
+    allowance : nat ;
+}
+type approve_tokens = approve_token list
 
 // This contract keeps the admin's (the company's) address as well 
 //   as a big map of all the projects.
 //   This map's key is a project owner, so one address can only 
 //   own one project.
 type storage = {
+    // the oracle that approves projects and gives minting permissions
     admin : address ;
+    // keeps track of created projects
     projects : (project_owner, project_address) big_map ;
     // keeps track of the number of outstanding "mintable" tokens
     minting_permissions : (token, nat) big_map ; 
-    // to create a project the admin must preapprove the project and metadata
-    project_whitelist : (project_owner, create_project) big_map ;
     // the address of the marketplace contract
     c4x_address : address ;
 }
@@ -42,11 +45,10 @@ type storage = {
  * ============================================================================= *)
 
 type entrypoint = 
-| CreateProject of unit 
-| AddZone of unit
+| CreateProject of create_project 
 | MintTokens of mint_tokens
 | BuryCarbon of bury_carbon 
-| UpdatePermissions of update_permissions 
+| ApproveTokens of approve_tokens 
 | UpdateC4XAddress of address
 
 type result = (operation list) * storage
@@ -59,6 +61,7 @@ let error_PROJECT_NOT_FOUND = 0n
 let error_PERMISSIONS_DENIED = 1n
 let error_COULD_NOT_GET_ENTRYPOINT = 2n
 let error_COLLISION = 3n
+let error_NOT_ENOUGH_ALLOWANCE = 4n
 
 (* =============================================================================
  * Auxiliary Functions
@@ -91,13 +94,9 @@ let param_to_burn (b : bury) : operation =
 //   pair will correspond with a project's "zone", which has its unique token id ( : nat )
 //   and token metadata. Token metadata has type (string, bytes) map
 // type create_project = (nat * token_metadata) list
-let create_project (_ : unit) (storage : storage) : result = 
-    // pull the project from the whitelist
+let create_project (param : create_project) (storage : storage) : result = 
+    // get new project owner
     let owner = Tezos.source in 
-    let (param, project_whitelist) = 
-        match Big_map.get_and_update owner (None : create_project option) storage.project_whitelist with 
-        | (None, w) -> (failwith error_PERMISSIONS_DENIED : create_project * (project_owner, create_project) big_map)
-        | (Some p, w) -> (p, w) in 
     // check the project owner doesn't already have a project 
     if Big_map.mem owner storage.projects then (failwith error_COLLISION : result) else
     // construct the initial storage for your project's FA2 contract
@@ -112,61 +111,16 @@ let create_project (_ : unit) (storage : storage) : result =
     // initiate an FA2 contract w/permissions given to project contract
     let fa2_init_storage = {
         carbon_contract = Tezos.self_address ;
+        owner = owner ; 
         ledger = ledger ;
         operators = operators ;
         metadata = metadata ; } in 
     let (op_new_fa2,addr_new_fa2) = 
         deploy_carbon_fa2 (None : key_hash option) 0tez fa2_init_storage in
-    // update the c4x whitelist
-    let txndata_whitelist = 
-        List.map
-        (fun (c : create) -> 
-            ({ token_address = addr_new_fa2 ; token_id = c.token_id ; }, (Some ())) )
-        param in
-    let entrypoint_whitelist =
-        match (Tezos.get_entrypoint_opt "%whitelistTokens" storage.c4x_address : (token * (unit option)) list contract option) with
-        | None -> (failwith error_COULD_NOT_GET_ENTRYPOINT : (token * (unit option)) list contract)
-        | Some e -> e in 
-    let op_whitelist = Tezos.transaction txndata_whitelist 0tez entrypoint_whitelist in
     // update the local storage
     let storage = { storage with 
-        projects = Big_map.update owner (Some addr_new_fa2) storage.projects ; 
-        project_whitelist = project_whitelist ; } in 
-    ([ op_new_fa2 ; op_whitelist ; ], storage)
-
-// This entrypoint allows project owners to add zones (token ids) to their project
-// To do so, they pull pre-approved new zones from the whitelist and then send a transaction 
-// to their project's FA2 contract, which updates the token ids. 
-// If there is a collision on token ids then the FA2 contract will fail the transaction
-let add_zone (_ : unit) (storage : storage) : result = 
-    let proj_owner = Tezos.sender in 
-    let addr_proj =
-        match Big_map.find_opt proj_owner storage.projects with
-        | None -> (failwith error_PROJECT_NOT_FOUND : address)
-        | Some a -> a in 
-    // add zones from the project whitelist
-    let (txndata_addZone, project_whitelist) = 
-        match Big_map.get_and_update proj_owner (None : create_project option) storage.project_whitelist with 
-        | (None, w) -> (failwith error_PROJECT_NOT_FOUND : create_project * (project_owner, create_project) big_map)
-        | (Some c, w) -> (c, w) in 
-    let entrypoint_addZone = 
-        match (Tezos.get_entrypoint_opt "%add_zone" addr_proj : create_project contract option) with
-        | None -> (failwith error_COULD_NOT_GET_ENTRYPOINT : create_project contract)
-        | Some c -> c in 
-    let op_addZone = 
-        Tezos.transaction txndata_addZone 0tez entrypoint_addZone in 
-    // update the c4x whitelist to include these zones
-    let txndata_whitelist = 
-        List.map
-        (fun (c : create) -> 
-            ({ token_address = addr_proj ; token_id = c.token_id ; }, (Some ())) )
-        txndata_addZone in
-    let entrypoint_whitelist =
-        match (Tezos.get_entrypoint_opt "%whitelistTokens" storage.c4x_address : (token * (unit option)) list contract option) with
-        | None -> (failwith error_COULD_NOT_GET_ENTRYPOINT : (token * (unit option)) list contract)
-        | Some e -> e in 
-    let op_whitelist = Tezos.transaction txndata_whitelist 0tez entrypoint_whitelist in
-    ([ op_addZone ; op_whitelist ; ], { storage with project_whitelist = project_whitelist ; })
+        projects = Big_map.update owner (Some addr_new_fa2) storage.projects ; } in 
+    ([ op_new_fa2 ; ], storage)
 
 //  The entrypoint function that a project owner uses to mint new tokens 
 //      The input type mint_tokens is a list of triples: (address * nat * nat) list
@@ -187,7 +141,7 @@ let mint_tokens (param : mint_tokens) (storage : storage) : result =
                 match Big_map.find_opt token s.minting_permissions with 
                 | None -> 0n - m.qty
                 | Some b -> b - m.qty in 
-            if new_allowance < 0 then (failwith error_PERMISSIONS_DENIED : storage) else 
+            if new_allowance < 0 then (failwith error_NOT_ENOUGH_ALLOWANCE : storage) else 
             { s with minting_permissions = Big_map.update token (Some (abs new_allowance)) s.minting_permissions ; })
         storage
         param in 
@@ -211,28 +165,31 @@ let bury_carbon (param : bury_carbon) (storage : storage) : result =
     let ops_burn = List.map param_to_burn param in 
     (ops_burn, storage)
 
-// update permissions entrypoint
-// the admin can use this entrypoint to give minting priveleges and to
-// update the project whitelist
-let update_permisssions (param : update_permissions) (storage : storage) : result = 
+// approve tokens entrypoint
+let approve_tokens (param : approve_tokens) (storage : storage) : result = 
     // check permissions
     if Tezos.sender <> storage.admin then (failwith error_PERMISSIONS_DENIED : result) else
-    // update permissions
-    match param with 
-    | MintingPermissions (token, qty) -> 
-        ([] : operation list), 
-        { storage with 
-          minting_permissions =
-            let new_allowance = 
-                match Big_map.find_opt token storage.minting_permissions with 
-                | None -> abs (0 + qty)
-                | Some b -> abs (int(b) + qty) in 
-            Big_map.update token (Some new_allowance) storage.minting_permissions }
-    | ProjectWhitelist (project_owner, project_data) ->
-        // update storage
-        ([] : operation list),
-        { storage with 
-            project_whitelist = Big_map.update project_owner (Some project_data) storage.project_whitelist }
+    // update the c4x whitelist (could be redundant for now)
+    let txndata_whitelist = List.map (fun (t : approve_token) -> (t.token, (Some ())) ) param in
+    let entrypoint_whitelist =
+        match (Tezos.get_entrypoint_opt "%whitelistTokens" storage.c4x_address : (token * (unit option)) list contract option) with
+        | None -> (failwith error_COULD_NOT_GET_ENTRYPOINT : (token * (unit option)) list contract)
+        | Some e -> e in 
+    let op_whitelist = Tezos.transaction txndata_whitelist 0tez entrypoint_whitelist in
+    // update storage
+    let storage = 
+        List.fold_left
+        (fun (s, t : storage * approve_token) -> 
+            { s with 
+                minting_permissions = 
+                let new_allowance = 
+                    match Big_map.find_opt t.token s.minting_permissions with 
+                    | None -> 0n + t.allowance
+                    | Some b -> b + t.allowance in 
+                Big_map.update t.token (Some new_allowance) storage.minting_permissions } )
+        storage
+        param in 
+    [op_whitelist;], storage
 
 // This is a function for bootstrapping these contracts onto the chain, since both
 // the carbon contract and the c4x contract need to know each other's addresses
@@ -256,15 +213,18 @@ let update_c4x_address (c4x_address : address) (storage : storage) : result =
 //   entrypont function.
 let main (entrypoint, storage : entrypoint * storage) : result =
     match entrypoint with 
+    // create a new project; anyone can do this
     | CreateProject param ->
         create_project param storage
-    | AddZone param ->
-        add_zone param storage
+    // mint tokens for your project; you need permissions to do this
     | MintTokens param ->
         mint_tokens param storage
+    // "bury" (burn) carbon tokens and take them permanently off the market
     | BuryCarbon param ->
         bury_carbon param storage
-    | UpdatePermissions param -> 
-        update_permisssions param storage
+    // give permissions to mint tokens and exchange them on the c4x marketplace
+    | ApproveTokens param -> 
+        approve_tokens param storage
+    // for bootstrapping: this only works once
     | UpdateC4XAddress param ->
         update_c4x_address param storage

@@ -6,6 +6,7 @@ type token_metadata = (string, bytes) map
 
 type storage = {
     // address of the main carbon contract
+    owner : address ; 
     carbon_contract : address ; 
 
     // the ledger keeps track of who owns what token
@@ -20,7 +21,6 @@ type storage = {
     // token metadata for each token type supported by this contract
     metadata : (fa2_token_id, token_metadata) big_map; 
 }
-// TODO: keep track of owner in storage?
 
 type result = (operation list) * storage
 

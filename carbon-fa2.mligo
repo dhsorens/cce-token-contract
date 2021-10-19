@@ -14,7 +14,8 @@ type fa2_operator = address
 type token_metadata = (string, bytes) map
 
 type storage = {
-    // address of the main carbon contract
+    // address of the main carbon contract and project owner
+    owner : address ; 
     carbon_contract : address ; 
 
     // the ledger keeps track of who owns what token
@@ -29,7 +30,6 @@ type storage = {
     // token metadata for each token type supported by this contract
     metadata : (fa2_token_id, token_metadata) big_map; 
 }
-// TODO: keep track of owner in storage?
 
 type result = (operation list) * storage
 
@@ -276,7 +276,7 @@ let get_metadata (param : get_metadata) (storage : storage) : result =
 // governing this process
 // If there is a collision on token ids, this entrypoint will return a failwith
 let add_zone (param : token_data list) (storage : storage) : result = 
-    if Tezos.sender <> storage.carbon_contract then (failwith error_PERMISSIONS_DENIED : result) else
+    if Tezos.sender <> storage.owner then (failwith error_PERMISSIONS_DENIED : result) else
     let storage = 
         List.fold_left
         (fun (s, d : storage * token_data) -> 
