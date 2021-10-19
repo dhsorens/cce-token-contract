@@ -483,13 +483,18 @@ let rec whitelist_tokens (param, storage : whitelist_tokens * storage) : result 
 
 let main (entrypoint, storage : entrypoint * storage) = 
     match entrypoint with 
-    | ForSale param -> // a seller posts their tokens for sale at a given price
+    // a seller posts their tokens for sale at a given price
+    | ForSale param -> 
         for_sale param storage
-    | Auction param -> // a seller auctions off their tokens
+    // a seller auctions off their tokens
+    | Auction param -> 
         auction param storage
-    | Offer param -> // a buyer makes an offer for some tokens
+    // a buyer makes an offer for some tokens
+    | Offer param -> 
         offer param storage
+    // redeem tokens or tez that are yours from an auction
     | Redeem param -> 
         redeem param storage
-    | WhitelistTokens param -> // the tokens on the market
+    // update which tokens are allowed to trade on this marketplace
+    | WhitelistTokens param -> 
         whitelist_tokens (param, storage)
