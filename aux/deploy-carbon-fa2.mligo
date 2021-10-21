@@ -138,10 +138,10 @@ let deploy_carbon_fa2 (delegate : key_hash option) (amnt : tez) (init_storage : 
                 let callback = param.callback in 
                 let metadata_list = 
                     List.map 
-                    (fun (token_id : nat) : token_data -> 
-                        match Big_map.find_opt token_id storage.metadata with 
-                        | None -> (failwith error_FA2_TOKEN_UNDEFINED : token_data) 
-                        | Some m -> {token_id = token_id ; token_metadata = m ; })
+                    (fun (token_id : nat) : token_metadata -> 
+                        match Big_map.find_opt token_id storage.token_metadata with 
+                        | None -> (failwith error_FA2_TOKEN_UNDEFINED : token_metadata) 
+                        | Some m -> {token_id = token_id ; token_info = m.token_info ; })
                     query_list in 
                 let op_metadata = Tezos.transaction metadata_list 0tez callback in 
                 ([op_metadata] , storage)) 
@@ -149,14 +149,19 @@ let deploy_carbon_fa2 (delegate : key_hash option) (amnt : tez) (init_storage : 
                 if Tezos.sender <> storage.owner then (failwith error_PERMISSIONS_DENIED : result) else
                 let storage = 
                     List.fold_left
-                    (fun (s, d : storage * token_data) -> 
-                        { s with metadata = 
-                            match Big_map.get_and_update d.token_id (Some d.token_metadata) s.metadata with
+                    (fun (s, d : storage * token_metadata) -> 
+                        { s with token_metadata = 
+                            match Big_map.get_and_update d.token_id (Some d) s.token_metadata with
                             | (None, m) -> m
                             | (Some _, m) -> (failwith error_COLLISION : (fa2_token_id, token_metadata) big_map) } )
                     storage
                     param in 
-                ([] : operation list), storage)) in
+                ([] : operation list), storage)
+                
+            | Update_contract_metadata param -> (
+                if Tezos.sender <> storage.owner then (failwith error_PERMISSIONS_DENIED : result) else
+                ([] : operation list),
+                { storage with metadata = param } ) ) in
         main (entrypoint, storage))
         (* End of contract code for the project FA2 contract *)
     delegate

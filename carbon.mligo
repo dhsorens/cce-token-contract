@@ -10,11 +10,11 @@ type project_owner = address
 type project_address = address 
 type token = { token_address : address ; token_id : nat ; }
 
-type create = { token_id : nat ; token_metadata : (string, bytes) map ; }
+type create = { token_id : nat ; token_info : (string, bytes) map ; } // = token_metadata
 type mint   = { owner : address ; token_id : nat ; qty : nat ; } // = mintburn_data
 type bury   = { project_address : address ; token_id : nat ; qty : nat ; }
 
-type create_project = create list
+type create_project = create list * contract_metadata
 type mint_tokens    = mint list
 type bury_carbon    = bury list
 
@@ -95,6 +95,7 @@ let param_to_burn (b : bury) : operation =
 //   and token metadata. Token metadata has type (string, bytes) map
 // type create_project = (nat * token_metadata) list
 let create_project (param : create_project) (storage : storage) : result = 
+    let (token_metadata, metadata) = param in 
     // get new project owner
     let owner = Tezos.source in 
     // check the project owner doesn't already have a project 
@@ -102,19 +103,20 @@ let create_project (param : create_project) (storage : storage) : result =
     // construct the initial storage for your project's FA2 contract
     let ledger    = (Big_map.empty : (fa2_owner * fa2_token_id , fa2_amt) big_map) in 
     let operators = (Big_map.empty : (fa2_owner * fa2_operator * fa2_token_id, unit) big_map) in  
-    let metadata = 
+    let token_metadata = 
         List.fold_left 
         (fun (acc, c : ((fa2_token_id, token_metadata) big_map) * create ) 
-            -> Big_map.update c.token_id (Some c.token_metadata) acc ) // ensures no duplicate token ids 
+            -> Big_map.update c.token_id (Some c) acc ) // ensures no duplicate token ids 
         (Big_map. empty : (fa2_token_id, token_metadata) big_map)
-        param in 
+        token_metadata in 
     // initiate an FA2 contract w/permissions given to project contract
     let fa2_init_storage = {
         carbon_contract = Tezos.self_address ;
         owner = owner ; 
         ledger = ledger ;
         operators = operators ;
-        metadata = metadata ; } in 
+        token_metadata = token_metadata ; 
+        metadata = metadata ;} in 
     let (op_new_fa2,addr_new_fa2) = 
         deploy_carbon_fa2 (None : key_hash option) 0tez fa2_init_storage in
     // update the local storage

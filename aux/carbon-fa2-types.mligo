@@ -2,10 +2,14 @@ type fa2_token_id = nat
 type fa2_amt = nat
 type fa2_owner = address
 type fa2_operator = address
-type token_metadata = (string, bytes) map
+type token_metadata = [@layout:comb]{
+    token_id : nat ; 
+    token_info : (string, bytes) map ;
+}
+type contract_metadata = (string, bytes) big_map
 
 type storage = {
-    // address of the main carbon contract
+    // address of the main carbon contract and project owner
     owner : address ; 
     carbon_contract : address ; 
 
@@ -19,7 +23,9 @@ type storage = {
     operators : (fa2_owner * fa2_operator * fa2_token_id, unit) big_map; 
     
     // token metadata for each token type supported by this contract
-    metadata : (fa2_token_id, token_metadata) big_map; 
+    token_metadata : (fa2_token_id, token_metadata) big_map;
+    // contract metadata 
+    metadata : (string, bytes) big_map;
 }
 
 type result = (operation list) * storage
@@ -51,10 +57,9 @@ type update_operators = update_operator list
 type mintburn_data = { owner : address ; token_id : nat ; qty : nat ; }
 type mintburn = mintburn_data list
 
-type token_data = { token_id : nat ; token_metadata : (string, bytes) map ; }
 type get_metadata = {
     token_ids : nat list ;
-    callback : token_data list contract ;
+    callback : token_metadata list contract ;
 }
 
 type entrypoint = 
@@ -64,4 +69,5 @@ type entrypoint =
 | Mint of mintburn // mint tokens
 | Burn of mintburn // burn tokens 
 | Get_metadata of get_metadata // query the metadata of a given token
-| Add_zone of token_data list 
+| Add_zone of token_metadata list 
+| Update_contract_metadata of contract_metadata

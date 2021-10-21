@@ -11,7 +11,11 @@ type fa2_token_id = nat
 type fa2_amt = nat
 type fa2_owner = address
 type fa2_operator = address
-type token_metadata = (string, bytes) map
+type token_metadata = [@layout:comb]{
+    token_id : nat ; 
+    token_info : (string, bytes) map ;
+}
+type contract_metadata = (string, bytes) big_map
 
 type storage = {
     // address of the main carbon contract and project owner
@@ -28,7 +32,9 @@ type storage = {
     operators : (fa2_owner * fa2_operator * fa2_token_id, unit) big_map; 
     
     // token metadata for each token type supported by this contract
-    metadata : (fa2_token_id, token_metadata) big_map; 
+    token_metadata : (fa2_token_id, token_metadata) big_map;
+    // contract metadata 
+    metadata : (string, bytes) big_map;
 }
 
 type result = (operation list) * storage
@@ -60,10 +66,9 @@ type update_operators = update_operator list
 type mintburn_data = { owner : address ; token_id : nat ; qty : nat ; }
 type mintburn = mintburn_data list
 
-type token_data = { token_id : nat ; token_metadata : (string, bytes) map ; }
 type get_metadata = {
     token_ids : nat list ;
-    callback : token_data list contract ;
+    callback : token_metadata list contract ;
 }
 
 type entrypoint = 
@@ -73,7 +78,8 @@ type entrypoint =
 | Mint of mintburn // mint tokens
 | Burn of mintburn // burn tokens 
 | Get_metadata of get_metadata // query the metadata of a given token
-| Add_zone of token_data list 
+| Add_zone of token_metadata list 
+| Update_contract_metadata of contract_metadata
 
 
 (* =============================================================================
@@ -263,10 +269,10 @@ let get_metadata (param : get_metadata) (storage : storage) : result =
     let callback = param.callback in 
     let metadata_list = 
         List.map 
-        (fun (token_id : nat) : token_data -> 
-            match Big_map.find_opt token_id storage.metadata with 
-            | None -> (failwith error_FA2_TOKEN_UNDEFINED : token_data) 
-            | Some m -> {token_id = token_id ; token_metadata = m ; })
+        (fun (token_id : nat) : token_metadata -> 
+            match Big_map.find_opt token_id storage.token_metadata with 
+            | None -> (failwith error_FA2_TOKEN_UNDEFINED : token_metadata) 
+            | Some m -> {token_id = token_id ; token_info = m.token_info ; })
         query_list in 
     let op_metadata = Tezos.transaction metadata_list 0tez callback in 
     ([op_metadata] , storage)
@@ -275,19 +281,25 @@ let get_metadata (param : get_metadata) (storage : storage) : result =
 // This transaction has to come from the carbon contract, which has a set of preapproval rules 
 // governing this process
 // If there is a collision on token ids, this entrypoint will return a failwith
-let add_zone (param : token_data list) (storage : storage) : result = 
+let add_zone (param : token_metadata list) (storage : storage) : result = 
     if Tezos.sender <> storage.owner then (failwith error_PERMISSIONS_DENIED : result) else
     let storage = 
         List.fold_left
-        (fun (s, d : storage * token_data) -> 
-            { s with metadata = 
-                match Big_map.get_and_update d.token_id (Some d.token_metadata) s.metadata with
+        (fun (s, d : storage * token_metadata) -> 
+            { s with token_metadata = 
+                match Big_map.get_and_update d.token_id (Some d) s.token_metadata with
                 | (None, m) -> m
                 | (Some _, m) -> (failwith error_COLLISION : (fa2_token_id, token_metadata) big_map) } )
         storage
         param in 
     ([] : operation list), storage
 
+
+// this entrypoint allows a project owner to update the metadata for their project
+let update_contract_metadata (param : contract_metadata) (storage : storage) : result = 
+    if Tezos.sender <> storage.owner then (failwith error_PERMISSIONS_DENIED : result) else
+    ([] : operation list),
+    { storage with metadata = param }
 
 
 (* =============================================================================
@@ -310,3 +322,5 @@ let rec main ((entrypoint, storage) : entrypoint * storage) : result =
         get_metadata param storage
     | Add_zone param ->
         add_zone param storage
+    | Update_contract_metadata param ->
+        update_contract_metadata param storage
