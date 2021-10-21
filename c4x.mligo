@@ -55,7 +55,7 @@ type storage = {
     // metadata and minting oracle
     carbon_contract : address ;
     // the tokens that are allowed to be traded on this marketplace
-    token_whitelist : (token, unit) big_map ; 
+    approved_tokens : (token, unit) big_map ; 
     // for bootstrapping
     null_address : address ;
 }
@@ -65,7 +65,7 @@ type storage = {
  * ============================================================================= *)
 
 type buy_for_sale = { buyer : address ; token : token ; owner : address ; amt : nat ; }
-type whitelist_tokens = (token * (unit option)) list
+type approve_tokens = (token * (unit option)) list
 
 type for_sale = 
 | PostForSale   of token_for_sale * sale_data
@@ -87,7 +87,7 @@ type entrypoint =
 | Auction of auction  // a seller auctions off their tokens
 | Offer of offer // a buyer makes an offer for tokens
 | Redeem of unit // redeem tokens and xtz for the sender
-| WhitelistTokens of whitelist_tokens // updated by the carbon contract
+| ApproveTokens of approve_tokens // updated by the carbon contract
 
 type result = operation list * storage
 
@@ -96,7 +96,7 @@ type result = operation list * storage
  * ============================================================================= *)
 
 let error_PERMISSIONS_DENIED = 0n 
-let error_TOKEN_NOT_WHITELISTED = 1n 
+let error_TOKEN_NOT_APPROVED = 1n 
 let error_NO_TOKEN_CONTRACT_FOUND = 2n 
 let error_INVALID_ADDRESS = 3n
 let error_TOKEN_FOR_SALE_NOT_FOUND = 4n
@@ -129,9 +129,9 @@ let post_for_sale (token, data : token_for_sale * sale_data) (storage : storage)
     // check permissions and collisions
     if token.owner <> Tezos.sender then (failwith error_PERMISSIONS_DENIED : result) else
     if Big_map.mem token storage.tokens_for_sale then (failwith error_COLLISION : result) else
-    // check the token is whitelisted
+    // check the token is approved
     let token_data : token = { token_address = token.token_address ; token_id = token.token_id ; } in 
-    if not Big_map.mem token_data storage.token_whitelist then (failwith error_TOKEN_NOT_WHITELISTED : result) else
+    if not Big_map.mem token_data storage.approved_tokens then (failwith error_TOKEN_NOT_APPROVED : result) else
     // receive the tokens; sender has to authorize this as an operator
     let txndata_receive_tokens = { 
         from_ = Tezos.sender ; 
@@ -218,10 +218,10 @@ let for_sale (param : for_sale) (storage : storage) : result =
 //  Permisions:
 //  - if a wallet is an operator for someone's tokens, they can initiate an auction on their behalf
 let initiate_auction (token, data : token_for_sale * init_auction_data) (storage : storage) : result = 
-    // check the deadline is not already passed, for collisions, and that the token is whitelisted
+    // check the deadline is not already passed, for collisions, and that the token is approved
     if data.deadline <= Tezos.now then (failwith error_INVALID_DEADLINE : result) else
     if Big_map.mem token storage.tokens_on_auction then (failwith error_COLLISION : result) else
-    if not Big_map.mem {token_address = token.token_address ; token_id = token.token_id ; } storage.token_whitelist then (failwith error_TOKEN_NOT_WHITELISTED : result) else
+    if not Big_map.mem {token_address = token.token_address ; token_id = token.token_id ; } storage.approved_tokens then (failwith error_TOKEN_NOT_APPROVED : result) else
     // receive the tokens
     let txndata_receive_tokens = { 
         from_ = token.owner ; // if Tezos.sender is not an operator this will fail
@@ -337,8 +337,8 @@ let auction (param : auction) (storage : storage) : result =
  Offer Entrypoint Functions 
  *** **) 
 let make_offer (token : token_for_sale) (storage : storage) : result = 
-    // make sure the token is whitelisted
-    if not Big_map.mem { token_address = token.token_address ; token_id = token.token_id ; } storage.token_whitelist then (failwith error_TOKEN_NOT_WHITELISTED : result) else
+    // make sure the token is approved
+    if not Big_map.mem { token_address = token.token_address ; token_id = token.token_id ; } storage.approved_tokens then (failwith error_TOKEN_NOT_APPROVED : result) else
     if Tezos.amount / 1mutez = 0n then (failwith error_OFFER_MUST_BE_NONZERO : result) else
     // the offer-maker sends their offer in the txn
     let quote = (Tezos.amount / 1mutez) in 
@@ -468,17 +468,17 @@ let redeem (_ : unit) (storage : storage) : result =
 
 
 (*** ** 
- WhitelistTokens Entrypoint Functions 
+ ApproveTokens Entrypoint Functions 
  *** **)
-let rec whitelist_tokens (param, storage : whitelist_tokens * storage) : result = 
+let rec approve_tokens (param, storage : approve_tokens * storage) : result = 
     if Tezos.sender <> storage.carbon_contract then (failwith error_PERMISSIONS_DENIED : result) else 
     match param with 
     | [] -> (([] : operation list), storage)
     | hd :: tl ->
         let (token, add_or_remove) = hd in 
-        let token_whitelist : (token, unit) big_map = 
-            Big_map.update token add_or_remove storage.token_whitelist in
-        whitelist_tokens (tl, {storage with token_whitelist = token_whitelist ;})
+        let approved_tokens : (token, unit) big_map = 
+            Big_map.update token add_or_remove storage.approved_tokens in
+        approve_tokens (tl, {storage with approved_tokens = approved_tokens ;})
 
 
 (* =============================================================================
@@ -500,5 +500,5 @@ let main (entrypoint, storage : entrypoint * storage) =
     | Redeem param -> 
         redeem param storage
     // update which tokens are allowed to trade on this marketplace
-    | WhitelistTokens param -> 
-        whitelist_tokens (param, storage)
+    | ApproveTokens param -> 
+        approve_tokens (param, storage)

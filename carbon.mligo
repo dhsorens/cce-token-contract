@@ -171,13 +171,13 @@ let bury_carbon (param : bury_carbon) (storage : storage) : result =
 let approve_tokens (param : approve_tokens) (storage : storage) : result = 
     // check permissions
     if Tezos.sender <> storage.admin then (failwith error_PERMISSIONS_DENIED : result) else
-    // update the c4x whitelist (could be redundant for now)
-    let txndata_whitelist = List.map (fun (t : approve_token) -> (t.token, (Some ())) ) param in
-    let entrypoint_whitelist =
-        match (Tezos.get_entrypoint_opt "%whitelistTokens" storage.c4x_address : (token * (unit option)) list contract option) with
+    // update the c4x approveTokens (could be redundant for now)
+    let txndata_approveTokens = List.map (fun (t : approve_token) -> (t.token, (Some ())) ) param in
+    let entrypoint_approveTokens =
+        match (Tezos.get_entrypoint_opt "%approveTokens" storage.c4x_address : (token * (unit option)) list contract option) with
         | None -> (failwith error_COULD_NOT_GET_ENTRYPOINT : (token * (unit option)) list contract)
         | Some e -> e in 
-    let op_whitelist = Tezos.transaction txndata_whitelist 0tez entrypoint_whitelist in
+    let op_approveTokens = Tezos.transaction txndata_approveTokens 0tez entrypoint_approveTokens in
     // update storage
     let storage = 
         List.fold_left
@@ -191,7 +191,7 @@ let approve_tokens (param : approve_tokens) (storage : storage) : result =
                 Big_map.update t.token (Some new_allowance) storage.minting_permissions } )
         storage
         param in 
-    [op_whitelist;], storage
+    [op_approveTokens;], storage
 
 // This is a function for bootstrapping these contracts onto the chain, since both
 // the carbon contract and the c4x contract need to know each other's addresses
