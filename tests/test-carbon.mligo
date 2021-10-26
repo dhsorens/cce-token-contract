@@ -23,7 +23,9 @@ let init_carbon_contract () =
     // initiate contract; both alice and bob have 1000n tokens
     let init_carbon_storage : storage_carbon = {
         admin = addr_newcorp ;
-        projects = (Big_map.empty : (project_owner, project) big_map) ;
+        projects = (Big_map.empty : (project_owner, project_address) big_map) ;
+        minting_permissions = (Big_map.empty : (token, nat) big_map) ; 
+        c4x_address = addr_newcorp ; // TODO : make this something else
     } in
     let (typed_addr_carbon, _pgm_carbon, _size_carbon) = 
         Test.originate main_carbon init_carbon_storage 0tez in
@@ -45,12 +47,14 @@ let test_create_project =
 
     // alice will create a project with three token types
     let () = Test.set_source addr_alice in
-    let alice_project_data : create_project =
+    let alice_project_data : create_project = (
         [
-            (0n, (Map.empty : token_metadata) ); //(Map.literal [ ("first", Bytes.pack "A") ]) ) ;
-            (1n, (Map.empty : token_metadata) ); //(Map.literal [ ("first", Bytes.pack "B") ]) ) ;
-            (2n, (Map.empty : token_metadata) ); //(Map.literal [ ("first", Bytes.pack "C") ]) ) ;
-        ] in 
+            { token_id = 0n ; token_info = (Map.empty : (string, bytes) map) }; //(Map.literal [ ("first", Bytes.pack "A") ]) ) ;
+            { token_id = 1n ; token_info = (Map.empty : (string, bytes) map) }; //(Map.literal [ ("first", Bytes.pack "B") ]) ) ;
+            { token_id = 2n ; token_info = (Map.empty : (string, bytes) map) }; //(Map.literal [ ("first", Bytes.pack "C") ]) ) ;
+        ],
+            (Big_map.empty : (string, bytes) big_map)
+        ) in 
     let entrypoint_create_project : create_project contract = 
         Test.to_entrypoint "createProject" typed_addr_carbon in 
     let create_project_alice = 
@@ -60,16 +64,10 @@ let test_create_project =
     let contract_storage = Test.get_storage typed_addr_carbon in 
     let current_projects = contract_storage.projects in 
 
-    let addr_project_alice : address = (
-        match (Big_map.find_opt addr_alice current_projects : project option) with 
-        | None -> (failwith "NO_PROJECT_FOUND" : address)
-        | Some p -> p.addr_project
-    ) in
-
-    // (addr_alice, addr_project_alice)
-    () // if it's made it this far, Alice has a project
-
-
+    if not Big_map.mem addr_alice current_projects 
+        then (failwith "NO_PROJECT_FOUND" : unit)
+        else () // the test succeeded
+        // (*debug mode*) else (addr_alice, addr_project_alice)
 
 
 (* ============================================================================
@@ -82,12 +80,14 @@ let test_mint_tokens =
 
     // alice will create a project with three token types
     let () = Test.set_source addr_alice in
-    let alice_project_data : create_project =
+    let alice_project_data : create_project = (
         [
-            (0n, (Map.empty : token_metadata) ); //(Map.literal [ ("first", Bytes.pack "A") ]) ) ;
-            (1n, (Map.empty : token_metadata) ); //(Map.literal [ ("first", Bytes.pack "B") ]) ) ;
-            (2n, (Map.empty : token_metadata) ); //(Map.literal [ ("first", Bytes.pack "C") ]) ) ;
-        ] in 
+            { token_id = 0n ; token_info = (Map.empty : (string, bytes) map) }; //(Map.literal [ ("first", Bytes.pack "A") ]) ) ;
+            { token_id = 1n ; token_info = (Map.empty : (string, bytes) map) }; //(Map.literal [ ("first", Bytes.pack "B") ]) ) ;
+            { token_id = 2n ; token_info = (Map.empty : (string, bytes) map) }; //(Map.literal [ ("first", Bytes.pack "C") ]) ) ;
+        ],
+            (Big_map.empty : (string, bytes) big_map)
+        ) in 
     let entrypoint_create_project : create_project contract = 
         Test.to_entrypoint "createProject" typed_addr_carbon in 
     let create_project_alice = 
@@ -97,11 +97,10 @@ let test_mint_tokens =
     let contract_storage = Test.get_storage typed_addr_carbon in 
     let current_projects = contract_storage.projects in 
 
-    let addr_project_alice : address = (
-        match (Big_map.find_opt addr_alice current_projects : project option) with 
+    let addr_project_alice : address = 
+        match (Big_map.find_opt addr_alice current_projects : project_address option) with 
         | None -> (failwith "NO_PROJECT_FOUND" : address)
-        | Some p -> p.addr_project
-    ) in
+        | Some p -> p in
 
     (* TODO : When LIGO is fixed, you can get_entrypoint_opt again
     // alice will mint 100 tokens of id 0n, 1n, 2n, for bob, herself, dummy
