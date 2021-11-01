@@ -26,10 +26,10 @@ type storage = {
     ledger : (fa2_owner * fa2_token_id , fa2_amt) big_map ; 
     
     // an operator can trade tokens on behalf of the fa2_owner
-    // if the key (owner, operator, token_id) returns () this denotes that the operator has permissions
+    // if the key (owner, operator, token_id) returns some k : nat, this denotes that the operator has (one-time?) permissions to operate k tokens
     // if there is no entry, the operator has no permissions
     // such permissions need to granted, e.g. for the burn entrypoint in the carbon contract
-    operators : (fa2_owner * fa2_operator * fa2_token_id, unit) big_map; 
+    operators : (fa2_owner * fa2_operator * fa2_token_id, nat) big_map;
     
     // token metadata for each token type supported by this contract
     token_metadata : (fa2_token_id, token_metadata) big_map;
@@ -57,7 +57,7 @@ type balance_of = [@layout:comb]{
     callback : callback_data list contract ;
 }
 
-type operator_data = [@layout:comb]{ owner : address ; operator : address ; token_id : nat ; }
+type operator_data = [@layout:comb]{ owner : address ; operator : address ; token_id : nat ; qty : nat ; }
 type update_operator = 
     | Add_operator of operator_data
     | Remove_operator of operator_data
@@ -138,11 +138,16 @@ let rec transfer_txn (param , storage : transfer * storage) : storage =
         // check permissions
         let operator = Tezos.sender in 
         let owner = from in 
-        let not_operator : bool = 
+        let operator_permissions = 
             match Big_map.find_opt (owner, operator, token_id) storage.operators with 
-            | None -> true
-            | Some () -> false in 
-        if ((Tezos.sender <> from) && not_operator) then (failwith error_FA2_NOT_OPERATOR : storage) else 
+            | None -> 0n
+            | Some allowed_qty -> allowed_qty in 
+        if ((Tezos.sender <> from) && (operator_permissions < qty)) then (failwith error_FA2_NOT_OPERATOR : storage) else 
+        // update operator permissions to reflect this transfer
+        let operators = 
+            if Tezos.sender <> from // thus this is an operator
+            then Big_map.update (owner, operator, token_id) (Some (abs (operator_permissions - qty))) storage.operators
+            else storage.operators in
         // check balance
         let sender_token_balance =
             match Big_map.find_opt (from, token_id) storage.ledger with
@@ -162,7 +167,7 @@ let rec transfer_txn (param , storage : transfer * storage) : storage =
                  (from, token_id) 
                  (Some (abs (sender_token_balance - qty))) 
                  storage.ledger) in 
-        let storage = {storage with ledger = ledger ; } in
+        let storage = {storage with ledger = ledger ; operators = operators ; } in
         let param = { from_ = from ; txs = tl ; } in 
         transfer_txn (param, storage)
 
@@ -195,20 +200,27 @@ let balance_of (param : balance_of) (storage : storage) : result =
 let update_operator (param : update_operator) (storage : storage) : storage = 
     match param with
     | Add_operator o ->
-        let (owner, operator, token_id) = (o.owner, o.operator, o.token_id) in 
+        let (owner, operator, token_id, qty) = (o.owner, o.operator, o.token_id, o.qty) in 
         // check permissions        
         if (Tezos.source <> owner) then (failwith error_PERMISSIONS_DENIED : storage) else
+        if operator = owner then (failwith error_COLLISION : storage) else // an owner can't be their own operator 
         // update storage
+        let new_qty = 
+            let old_qty = 
+             match Big_map.find_opt (owner, operator, token_id) storage.operators with 
+             | None -> 0n 
+             | Some q -> q in 
+            old_qty + qty in 
         let storage = {storage with 
-            operators = Big_map.update (owner, operator, token_id) (Some ()) storage.operators ; } in 
-        storage  
+            operators = Big_map.update (owner, operator, token_id) (Some new_qty) storage.operators ; } in 
+        storage
     | Remove_operator o ->
         let (owner, operator, token_id) = (o.owner, o.operator, o.token_id) in 
         // check permissions
         if (Tezos.sender <> owner) then (failwith error_PERMISSIONS_DENIED : storage) else
         // update storage
         let storage = {storage with 
-            operators = Big_map.update (owner,operator,token_id) (None : unit option) storage.operators ; } in 
+            operators = Big_map.update (owner,operator,token_id) (None : nat option) storage.operators ; } in 
         storage
 
 let rec update_operators (param, storage : update_operators * storage) : result = 

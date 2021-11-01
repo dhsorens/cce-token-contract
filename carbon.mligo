@@ -102,7 +102,7 @@ let create_project (param : create_project) (storage : storage) : result =
     if Big_map.mem owner storage.projects then (failwith error_COLLISION : result) else
     // construct the initial storage for your project's FA2 contract
     let ledger    = (Big_map.empty : (fa2_owner * fa2_token_id , fa2_amt) big_map) in 
-    let operators = (Big_map.empty : (fa2_owner * fa2_operator * fa2_token_id, unit) big_map) in  
+    let operators = (Big_map.empty : (fa2_owner * fa2_operator * fa2_token_id, nat) big_map) in  
     let token_metadata = 
         List.fold_left 
         (fun (acc, c : ((fa2_token_id, token_metadata) big_map) * create ) 

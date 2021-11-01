@@ -491,7 +491,7 @@ let main (entrypoint, storage : entrypoint * storage) =
     | ForSale param -> 
         for_sale param storage
     // a seller auctions off their tokens
-    | Auction param -> 
+    | Auction param -> // TODO : This accepts chests, etc?
         auction param storage
     // a buyer makes an offer for some tokens
     | Offer param -> 

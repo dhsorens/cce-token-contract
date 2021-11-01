@@ -17,10 +17,10 @@ type storage = {
     ledger : (fa2_owner * fa2_token_id , fa2_amt) big_map ; 
     
     // an operator can trade tokens on behalf of the fa2_owner
-    // if the key (owner, operator, token_id) returns () this denotes that the operator has permissions
+    // if the key (owner, operator, token_id) returns some k : nat, this denotes that the operator has (one-time?) permissions to operate k tokens
     // if there is no entry, the operator has no permissions
     // such permissions need to granted, e.g. for the burn entrypoint in the carbon contract
-    operators : (fa2_owner * fa2_operator * fa2_token_id, unit) big_map; 
+    operators : (fa2_owner * fa2_operator * fa2_token_id, nat) big_map;
     
     // token metadata for each token type supported by this contract
     token_metadata : (fa2_token_id, token_metadata) big_map;
@@ -48,7 +48,7 @@ type balance_of = [@layout:comb]{
     callback : callback_data list contract ;
 }
 
-type operator_data = [@layout:comb]{ owner : address ; operator : address ; token_id : nat ; }
+type operator_data = [@layout:comb]{ owner : address ; operator : address ; token_id : nat ; qty : nat ; }
 type update_operator = 
     | Add_operator of operator_data
     | Remove_operator of operator_data
