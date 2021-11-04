@@ -37,6 +37,24 @@ type auction_data = {
     reserve_price : nat ; // in mutez
 }
 
+type init_blind_auction_data = {
+    deadline : timestamp ; // the end of the auction 
+    private_unlock_pd : int ; // a bidder unlocks their own bid
+    reserve_price : nat ; // in mutez
+    bid_deposit : nat ; // the desposit (in XTZ) required to bid
+}
+type blind_auction_data = {
+    // timekeeping
+    deadline : timestamp ; // the end of the auction 
+    private_unlock_pd : int ; // period of time a bidder unlocks their own bid (seconds)
+    // auction price parameters
+    reserve_price : nat ; // in mutez
+    bid_deposit : nat ; // the desposit (in XTZ) required to submit a bid
+    // bidding leaderboard
+    leader : address ; 
+    leading_bid : nat ; // the leader's bid
+}
+
 type redeemable_token = {
     token_address : address ; 
     token_id : nat ; 
@@ -51,6 +69,8 @@ type storage = {
     tokens_for_sale : (token_for_sale, sale_data) big_map ;
     offers : (token_offer, offer_data) big_map ;
     tokens_on_auction : (token_for_sale, auction_data) big_map ;
+    tokens_on_blind_auction : (token_for_sale, blind_auction_data) big_map ;
+    bids_on_blind_auction : (address * token_for_sale, chest) big_map ;
     redeem : (address, redeemable list) big_map ;
     // metadata and minting oracle
     carbon_contract : address ;
@@ -58,6 +78,7 @@ type storage = {
     approved_tokens : (token, unit) big_map ; 
     // for bootstrapping
     null_address : address ;
+    ctez_address : address ; 
 }
 
 (* =============================================================================
@@ -77,6 +98,13 @@ type auction =
 | BidOnAuction    of token_for_sale
 | FinishAuction   of token_for_sale
 
+type blind_auction = 
+| InitiateBlindAuction of token_for_sale * init_blind_auction_data
+| BidOnBlindAuction  of token_for_sale * chest 
+| UncoverBid  of token_for_sale * chest_key 
+| RemoveBid   of token_for_sale * address 
+| FinishBlindAuction of token_for_sale 
+
 type offer = 
 | MakeOffer    of token_for_sale
 | RetractOffer of token_for_sale
@@ -85,6 +113,7 @@ type offer =
 type entrypoint = 
 | ForSale of for_sale // a seller posts their tokens for sale at a given price
 | Auction of auction  // a seller auctions off their tokens
+| BlindAuction of blind_auction // a seller auctions off their tokens in a sealed-bid auction
 | Offer of offer // a buyer makes an offer for tokens
 | Redeem of unit // redeem tokens and xtz for the sender
 | ApproveTokens of approve_tokens // updated by the carbon contract
@@ -110,6 +139,11 @@ let error_NO_OFFER_FOUND = 11n
 let error_OFFER_MUST_BE_NONZERO = 12n
 let error_INSUFFICIENT_FUNDS = 13n
 let error_COLLISION = 14n
+let error_INCORRECT_DEPOSIT = 15n
+let error_BID_NOT_FOUND = 16n
+let error_NOT_PRIVATE_UNLOCK_PERIOD = 17n
+let error_COULD_NOT_DECRYPT_BID = 18n
+let error_TIMELOCK = 19n
 
 (* =============================================================================
  * Aux Functions
@@ -214,7 +248,6 @@ let for_sale (param : for_sale) (storage : storage) : result =
 (*** **
  Auction Entrypoint Functions 
  *** **)
-
 //  Permisions:
 //  - if a wallet is an operator for someone's tokens, they can initiate an auction on their behalf
 let initiate_auction (token, data : token_for_sale * init_auction_data) (storage : storage) : result = 
@@ -332,6 +365,199 @@ let auction (param : auction) (storage : storage) : result =
         bid_on_auction p storage 
     | FinishAuction p -> 
         finish_auction p storage
+
+(*** **
+ Blind Auction Entrypoint Functions 
+ *** **)
+let initiate_blind_auction (token, data : token_for_sale * init_blind_auction_data) (storage : storage) : result = 
+    // check the deadline is not already passed, for collisions, and that the token is approved
+    if data.deadline <= Tezos.now then (failwith error_INVALID_DEADLINE : result) else
+    if Big_map.mem token storage.tokens_on_blind_auction then (failwith error_COLLISION : result) else
+    if not Big_map.mem {token_address = token.token_address ; token_id = token.token_id ; } storage.approved_tokens then (failwith error_TOKEN_NOT_APPROVED : result) else
+    // receive the tokens
+    let txndata_receive_tokens = { 
+        from_ = token.owner ; // if Tezos.sender is not an operator this will fail
+        txs = [ { to_ = Tezos.self_address ; token_id = token.token_id ; amount = token.qty ; } ; ] ; } in
+    let entrypoint_receive_tokens =
+        match (Tezos.get_entrypoint_opt "%transfer" token.token_address : transfer list contract option) with 
+        | None -> (failwith error_NO_TOKEN_CONTRACT_FOUND : transfer list contract)
+        | Some e -> e in
+    let op_receive_tokens = 
+        Tezos.transaction [txndata_receive_tokens] 0tez entrypoint_receive_tokens in 
+    // update the tokens_on_auction big map
+    let init_data : blind_auction_data = {
+        // leaderboard
+        leader = token.owner ; 
+        leading_bid = 0n ;
+        // timekeeping
+        deadline = data.deadline ;
+        private_unlock_pd = data.private_unlock_pd ;
+        // price parameters 
+        bid_deposit = data.bid_deposit ;
+        reserve_price = data.reserve_price ; } in
+    // output
+    [ op_receive_tokens ; ],
+    { storage with tokens_on_blind_auction = Big_map.update token (Some init_data) storage.tokens_on_blind_auction ; }
+
+
+// A bid is received as an encrypted value; it MUST be an encrypted natural number
+// An operation that transfers the bid (and thus back it) is atomically tied to uncovering the bid
+let bid_on_blind_auction (token, bid : token_for_sale * chest) (storage : storage) : result = 
+    // get the data
+    let bid_deposit = Tezos.amount / 1mutez in 
+    let data = 
+        match Big_map.find_opt token storage.tokens_on_blind_auction with 
+        | None -> (failwith error_AUCTIONED_TOKEN_NOT_FOUND : blind_auction_data)
+        | Some d -> d in 
+    // check that the bid deposit is the right amount
+    if bid_deposit <> data.bid_deposit then (failwith error_INCORRECT_DEPOSIT : result) else
+    // check for collisions (you can only bid once)
+    if Big_map.mem (Tezos.sender, token) storage.bids_on_blind_auction then (failwith error_COLLISION : result) else 
+    // update storage to reflect their bid
+    ([] : operation list), 
+    { storage with 
+        bids_on_blind_auction = Big_map.update (Tezos.sender,token) (Some bid) storage.bids_on_blind_auction ; }
+
+
+// a bidder uncovers their own bid. If the bid:
+// - is in the wrong format (doesn't type check with nat), or
+// - can't be unlocked for some reason
+// then the deposit will be burned at the end of the auction
+let uncover_bid (token, chest_key : token_for_sale * chest_key) (storage : storage) : result = 
+    // get the auction data
+    let data = 
+        match Big_map.find_opt token storage.tokens_on_blind_auction with 
+        | None -> (failwith error_AUCTIONED_TOKEN_NOT_FOUND : blind_auction_data)
+        | Some d -> d in 
+    // check the timeline is right
+    if not (Tezos.now >= data.deadline && Tezos.now < data.deadline + data.private_unlock_pd) 
+        then (failwith error_NOT_PRIVATE_UNLOCK_PERIOD : result) else
+    // get the bid. Tezos.sender can only access their own bid
+    // If the bid is in the wrong format, then it can't be unlocked. 
+    //   In that case, the collateral will get sent to the null address later
+    // The bid gets removed from storage
+    let (chest, storage) = 
+        match Big_map.get_and_update (Tezos.sender, token) (None : chest option) storage.bids_on_blind_auction with
+        | (None, _) -> (failwith error_BID_NOT_FOUND : chest * storage)
+        | (Some c, m) -> (c, {storage with bids_on_blind_auction = m ;}) in 
+    let bid : nat = 
+        match Tezos.open_chest chest_key chest 10n with 
+        | Ok_opening b -> (
+            match (Bytes.unpack b : nat option) with 
+            | None -> (failwith error_COULD_NOT_DECRYPT_BID : nat)
+            | Some n -> n)
+        | Fail_decrypt -> (failwith error_COULD_NOT_DECRYPT_BID : nat)
+        | Fail_timelock -> (failwith error_TIMELOCK : nat) in 
+    // manage the auction
+    // case 1: the bidder is the new leader 
+    if bid > data.leading_bid then (
+        // return the bidder's deposit
+        let bid_deposit = data.bid_deposit in 
+        let txndata_return_bid = () in 
+        let entrypoint_return_bid = 
+            match (Tezos.get_entrypoint_opt "%main" Tezos.sender : unit contract option) with
+            | None -> (failwith error_INVALID_ADDRESS : unit contract)
+            | Some e -> e in
+        let op_return_deposit = Tezos.transaction txndata_return_bid (bid_deposit * 1mutez) entrypoint_return_bid in 
+        // return the bid of the current leader 
+        let txndata_return_bid = [ { 
+            from_ = Tezos.self_address ; 
+            txs = [ { to_ = data.leader ; token_id = 0n ; amount = data.leading_bid ; } ; ] ; } ; ] in
+        let entrypoint_return_bid = 
+            match (Tezos.get_entrypoint_opt "%transfer" storage.ctez_address : transfer list contract option) with 
+            | None -> (failwith error_INVALID_ADDRESS : transfer list contract)
+            | Some e -> e in 
+        let op_return_bid = Tezos.transaction txndata_return_bid 0tez entrypoint_return_bid in 
+        // update the data
+        let data = { data with leader = Tezos.sender ; leading_bid = bid ; } in 
+        [op_return_deposit ; op_return_bid ; ],
+        { storage with 
+            tokens_on_blind_auction = Big_map.update token (Some data) storage.tokens_on_blind_auction ; })
+    // case 2: the bidder is not the new leader
+    else ( 
+        // do not execute a transfer, or change storage
+        // just return the deposit of the bidder 
+        let bid_deposit = data.bid_deposit in 
+        let txndata_return_deposit = () in 
+        let entrypoint_return_deposit = 
+            match (Tezos.get_entrypoint_opt "%main" Tezos.sender : unit contract option) with
+            | None -> (failwith error_INVALID_ADDRESS : unit contract)
+            | Some e -> e in
+        let op_return_deposit = Tezos.transaction txndata_return_deposit (bid_deposit * 1mutez) entrypoint_return_deposit in 
+        [op_return_deposit],
+        storage )
+
+// the bidder forfeits the chance to participate in the auction and loses their bid 
+let remove_bid (token, bidder : token_for_sale * address) (storage : storage) : result = 
+    // get the auction data
+    let data = 
+        match Big_map.find_opt token storage.tokens_on_blind_auction with 
+        | None -> (failwith error_AUCTIONED_TOKEN_NOT_FOUND : blind_auction_data)
+        | Some d -> d in 
+    // check the timeline is right
+    if not (Tezos.now >= data.deadline + data.private_unlock_pd) 
+        then (failwith error_AUCTION_NOT_OVER : result) else
+    // get the chest (and bid?)
+    let (chest, storage) = 
+        match Big_map.get_and_update (Tezos.sender, token) (None : chest option) storage.bids_on_blind_auction with
+        | (None, _) -> (failwith error_BID_NOT_FOUND : chest * storage)
+        | (Some c, m) -> (c, {storage with bids_on_blind_auction = m ;}) in 
+    // transfer the deposit to the bidder (TODO : HALF OR SOMETHING?)
+    let txndata_transfer_deposit = () in 
+    let entrypoint_transfer_deposit = 
+        match (Tezos.get_entrypoint_opt "%main" Tezos.sender : unit contract option) with
+        | None -> (failwith error_INVALID_ADDRESS : unit contract)
+        | Some e -> e in
+    let op_transfer_deposit = Tezos.transaction txndata_transfer_deposit (data.bid_deposit * 1mutez) entrypoint_transfer_deposit in 
+    [op_transfer_deposit], storage
+
+
+let finish_blind_auction (token : token_for_sale) (storage : storage) : result = 
+    // get the auction data and remove it from storage
+    let (data, storage) = 
+        match Big_map.get_and_update token (None : blind_auction_data option) storage.tokens_on_blind_auction with 
+        | (None, _) -> (failwith error_AUCTIONED_TOKEN_NOT_FOUND : blind_auction_data * storage)
+        | (Some d, m) -> (d, {storage with tokens_on_blind_auction = m}) in 
+    // check timeline
+    if not (Tezos.now >= data.deadline + data.private_unlock_pd) 
+        then (failwith error_AUCTION_NOT_OVER : result) else
+    if Tezos.sender <> data.leader && Tezos.sender <> token.owner then (failwith error_PERMISSIONS_DENIED : result) else
+    // transfer the CTEZ to the token owner 
+    let txndata_payout = [ { 
+        from_ = Tezos.self_address ; 
+        txs = [ { to_ = token.owner ; token_id = 0n ; amount = data.leading_bid ; } ; ] ; } ; ] in
+    let entrypoint_payout = 
+        match (Tezos.get_entrypoint_opt "%transfer" storage.ctez_address : transfer list contract option) with 
+        | None -> (failwith error_INVALID_ADDRESS : transfer list contract)
+        | Some e -> e in 
+    let op_payout = Tezos.transaction txndata_payout 0tez entrypoint_payout in 
+    // transfer the tokens to the leader 
+    let txndata_tokens = [ { 
+        from_ = Tezos.self_address ; 
+        txs = [ { to_ = data.leader ; token_id = token.token_id ; amount = token.qty ; } ; ] ; } ; ] in
+    let entrypoint_tokens = 
+        match (Tezos.get_entrypoint_opt "%transfer" token.token_address : transfer list contract option) with
+        | None -> (failwith error_INVALID_ADDRESS : transfer list contract)
+        | Some e -> e in 
+    let op_tokens = Tezos.transaction txndata_tokens 0tez entrypoint_tokens in 
+    // finish 
+    [op_payout ; op_tokens ;],
+    storage
+
+
+let blind_auction (param : blind_auction) (storage : storage) : result = 
+    match param with 
+    | InitiateBlindAuction p ->
+        initiate_blind_auction p storage
+    | BidOnBlindAuction p ->
+        bid_on_blind_auction p storage 
+    | UncoverBid p -> // a bidder uncovers their own bid
+        uncover_bid p storage
+    | RemoveBid p -> 
+        remove_bid p storage 
+    | FinishBlindAuction p ->
+        finish_blind_auction p storage 
+
 
 (*** **
  Offer Entrypoint Functions 
@@ -491,8 +717,11 @@ let main (entrypoint, storage : entrypoint * storage) =
     | ForSale param -> 
         for_sale param storage
     // a seller auctions off their tokens
-    | Auction param -> // TODO : This accepts chests, etc?
+    | Auction param -> 
         auction param storage
+    // a seller auctions off their tokens in a sealed-bid auction
+    | BlindAuction param -> 
+        blind_auction param storage
     // a buyer makes an offer for some tokens
     | Offer param -> 
         offer param storage
