@@ -98,17 +98,22 @@ type auction =
 | BidOnAuction    of token_for_sale
 | FinishAuction   of token_for_sale
 
+type initiate_blind_auction = { token : token_for_sale ; init_data : init_blind_auction_data ; }
+type bid_on_blind_auction = { token : token_for_sale ; bid : chest ; }
+type uncover_bid = { token : token_for_sale ; chest_key : chest_key ; chest_time : nat ; }
+type remove_bid = { token : token_for_sale ; bidder : address ; }
+
 type blind_auction = 
-| InitiateBlindAuction of token_for_sale * init_blind_auction_data
-| BidOnBlindAuction  of token_for_sale * chest 
-| UncoverBid  of token_for_sale * chest_key 
-| RemoveBid   of token_for_sale * address 
+| InitiateBlindAuction of initiate_blind_auction
+| BidOnBlindAuction  of bid_on_blind_auction
+| UncoverBid  of uncover_bid
+| RemoveBid   of remove_bid
 | FinishBlindAuction of token_for_sale 
 
 type offer = 
 | MakeOffer    of token_for_sale
 | RetractOffer of token_for_sale
-| AcceptOffer  of token_offer    * offer_data
+| AcceptOffer  of token_offer * offer_data
 
 type entrypoint = 
 | ForSale of for_sale // a seller posts their tokens for sale at a given price
@@ -369,7 +374,8 @@ let auction (param : auction) (storage : storage) : result =
 (*** **
  Blind Auction Entrypoint Functions 
  *** **)
-let initiate_blind_auction (token, data : token_for_sale * init_blind_auction_data) (storage : storage) : result = 
+let initiate_blind_auction (param : initiate_blind_auction) (storage : storage) : result = 
+    let (token, data) = (param.token, param.init_data) in 
     // check the deadline is not already passed, for collisions, and that the token is approved
     if data.deadline <= Tezos.now then (failwith error_INVALID_DEADLINE : result) else
     if Big_map.mem token storage.tokens_on_blind_auction then (failwith error_COLLISION : result) else
@@ -402,7 +408,8 @@ let initiate_blind_auction (token, data : token_for_sale * init_blind_auction_da
 
 // A bid is received as an encrypted value; it MUST be an encrypted natural number
 // An operation that transfers the bid (and thus back it) is atomically tied to uncovering the bid
-let bid_on_blind_auction (token, bid : token_for_sale * chest) (storage : storage) : result = 
+let bid_on_blind_auction (param : bid_on_blind_auction) (storage : storage) : result = 
+    let (token, bid) = (param.token, param.bid) in 
     // get the data
     let bid_deposit = Tezos.amount / 1mutez in 
     let data = 
@@ -422,8 +429,9 @@ let bid_on_blind_auction (token, bid : token_for_sale * chest) (storage : storag
 // a bidder uncovers their own bid. If the bid:
 // - is in the wrong format (doesn't type check with nat), or
 // - can't be unlocked for some reason
-// then the deposit will be burned at the end of the auction
-let uncover_bid (token, chest_key : token_for_sale * chest_key) (storage : storage) : result = 
+// then the deposit will be open to anyone who garbage collects at the end of the auction
+let uncover_bid (param : uncover_bid) (storage : storage) : result = 
+    let (token, chest_key, chest_time) = (param.token, param.chest_key, param.chest_time) in 
     // get the auction data
     let data = 
         match Big_map.find_opt token storage.tokens_on_blind_auction with 
@@ -441,7 +449,7 @@ let uncover_bid (token, chest_key : token_for_sale * chest_key) (storage : stora
         | (None, _) -> (failwith error_BID_NOT_FOUND : chest * storage)
         | (Some c, m) -> (c, {storage with bids_on_blind_auction = m ;}) in 
     let bid : nat = 
-        match Tezos.open_chest chest_key chest 10n with 
+        match Tezos.open_chest chest_key chest chest_time with 
         | Ok_opening b -> (
             match (Bytes.unpack b : nat option) with 
             | None -> (failwith error_COULD_NOT_DECRYPT_BID : nat)
@@ -488,7 +496,8 @@ let uncover_bid (token, chest_key : token_for_sale * chest_key) (storage : stora
         storage )
 
 // the bidder forfeits the chance to participate in the auction and loses their bid 
-let remove_bid (token, bidder : token_for_sale * address) (storage : storage) : result = 
+let remove_bid (param : remove_bid) (storage : storage) : result = 
+    let (token, bidder) = (param.token, param.bidder) in 
     // get the auction data
     let data = 
         match Big_map.find_opt token storage.tokens_on_blind_auction with 
