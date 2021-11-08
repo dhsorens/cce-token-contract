@@ -367,7 +367,7 @@ let auction (param : auction) (storage : storage) : result =
 let initiate_blind_auction (param : initiate_blind_auction) (storage : storage) : result = 
     let (token, data) = (param.token, param.init_data) in 
     // check the deadline is not already passed, for collisions, and that the token is approved
-    if data.deadline <= Tezos.now then (failwith error_INVALID_DEADLINE : result) else
+    if not (Tezos.now < data.deadline) then (failwith error_INVALID_DEADLINE : result) else
     if Big_map.mem token storage.tokens_on_blind_auction then (failwith error_COLLISION : result) else
     if not Big_map.mem {token_address = token.token_address ; token_id = token.token_id ; } storage.approved_tokens 
         then (failwith error_TOKEN_NOT_APPROVED : result) else
