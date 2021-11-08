@@ -1,4 +1,4 @@
-#include "carbon-fa2-types.mligo"
+#include "x4c-project-types.mligo"
 type storage_fa2 = storage
 
 let deploy_carbon_fa2 (delegate : key_hash option) (amnt : tez) (init_storage : storage_fa2) = 

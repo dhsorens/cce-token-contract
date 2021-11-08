@@ -1,6 +1,6 @@
 // The main contract that controls the carbon credits project 
 
-#include "aux/deploy-carbon-fa2.mligo"
+#include "aux/deploy-x4c-project.mligo"
 
 (* =============================================================================
  * Storage

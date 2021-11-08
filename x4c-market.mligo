@@ -1,6 +1,6 @@
 (* This is the orderbook exchange that services the carbon contract *)
 (* The structure is a double-sided auction *)
-#include "aux/carbon-fa2-types.mligo"
+#include "aux/x4c-project-types.mligo"
 
 (* =============================================================================
  * Storage
