@@ -78,7 +78,6 @@ type storage = {
     approved_tokens : (token, unit) big_map ; 
     // for bootstrapping
     null_address : address ;
-    ctez_address : address ; 
 }
 
 (* =============================================================================
@@ -149,12 +148,19 @@ let error_BID_NOT_FOUND = 16n
 let error_NOT_PRIVATE_UNLOCK_PERIOD = 17n
 let error_COULD_NOT_DECRYPT_BID = 18n
 let error_TIMELOCK = 19n
+let error_PRIVATE_UNLOCK_PD_MUST_BE_POSITIVE = 20n
+let error_INCORRECT_BID_AMOUNT = 21n
 
 (* =============================================================================
  * Aux Functions
  * ============================================================================= *)
 
-
+let to_redeem (redeeming_party : address) (tokens : redeemable) (redeem : (address, redeemable list) big_map) : (address, redeemable list) big_map = 
+    let old_redeemable = match Big_map.find_opt redeeming_party redeem with 
+    | None -> ([] : redeemable list)
+    | Some l -> l in 
+    let updated_redeemable = tokens :: old_redeemable in 
+    Big_map.update redeeming_party (Some updated_redeemable) redeem
 
 
 (* =============================================================================
@@ -318,13 +324,7 @@ let bid_on_auction (token : token_for_sale) (storage : storage) : result =
         // if you don't do this and try to include the return in this transaction,
         // a contract that can't receive funds could win all auctions by making it impossible
         // to place a bid above them.
-        let redeem = 
-            let old_redeemable = match Big_map.find_opt data.leader storage.redeem with 
-            | None -> ([] : redeemable list)
-            | Some l -> l in 
-            let updated_redeemable = XTZ(data.leading_bid) :: old_redeemable in 
-            Big_map.update data.leader (Some updated_redeemable) storage.redeem in 
-
+        let redeem = to_redeem data.leader (XTZ(data.leading_bid)) storage.redeem in 
         ([] : operation list), 
         { storage with 
             tokens_on_auction = tokens_on_auction ; 
@@ -343,19 +343,9 @@ let finish_auction (token : token_for_sale) (storage : storage) : result =
     if Tezos.sender <> data.leader && Tezos.sender <> token.owner then (failwith error_PERMISSIONS_DENIED : result) else
     // make the tokens on auction redeemable
     let redeemable_tokens = { token_address = token.token_address ; token_id = token.token_id ; qty = token.qty ; } in 
-    let redeem = 
-        let old_redeemable = match Big_map.find_opt data.leader storage.redeem with
-        | None -> ([] : redeemable list)
-        | Some l -> l in 
-        let updated_redeemable = Tokens(redeemable_tokens) :: old_redeemable in 
-        Big_map.update data.leader (Some updated_redeemable) storage.redeem in 
+    let redeem = to_redeem data.leader (Tokens(redeemable_tokens)) storage.redeem in 
     // make the highest bid redeemable
-    let redeem = 
-        let old_redeemable = match Big_map.find_opt token.owner redeem with
-        | None -> ([] : redeemable list)
-        | Some l -> l in 
-        let updated_redeemable = XTZ(data.leading_bid) :: old_redeemable in 
-        Big_map.update token.owner (Some updated_redeemable) redeem in 
+    let redeem = to_redeem token.owner (XTZ(data.leading_bid)) storage.redeem in 
     ([] : operation list),
     { storage with 
         tokens_on_auction = tokens_on_auction ;
@@ -379,7 +369,9 @@ let initiate_blind_auction (param : initiate_blind_auction) (storage : storage) 
     // check the deadline is not already passed, for collisions, and that the token is approved
     if data.deadline <= Tezos.now then (failwith error_INVALID_DEADLINE : result) else
     if Big_map.mem token storage.tokens_on_blind_auction then (failwith error_COLLISION : result) else
-    if not Big_map.mem {token_address = token.token_address ; token_id = token.token_id ; } storage.approved_tokens then (failwith error_TOKEN_NOT_APPROVED : result) else
+    if not Big_map.mem {token_address = token.token_address ; token_id = token.token_id ; } storage.approved_tokens 
+        then (failwith error_TOKEN_NOT_APPROVED : result) else
+    if not data.private_unlock_pd > 0 then (failwith error_PRIVATE_UNLOCK_PD_MUST_BE_POSITIVE : result) else
     // receive the tokens
     let txndata_receive_tokens = { 
         from_ = token.owner ; // if Tezos.sender is not an operator this will fail
@@ -410,6 +402,8 @@ let initiate_blind_auction (param : initiate_blind_auction) (storage : storage) 
 // An operation that transfers the bid (and thus back it) is atomically tied to uncovering the bid
 let bid_on_blind_auction (param : bid_on_blind_auction) (storage : storage) : result = 
     let (token, bid) = (param.token, param.bid) in 
+    // check the bidder isn't the token owner 
+    if Tezos.sender = token.owner then (failwith error_PERMISSIONS_DENIED : result) else
     // get the data
     let bid_deposit = Tezos.amount / 1mutez in 
     let data = 
@@ -426,7 +420,8 @@ let bid_on_blind_auction (param : bid_on_blind_auction) (storage : storage) : re
         bids_on_blind_auction = Big_map.update (Tezos.sender,token) (Some bid) storage.bids_on_blind_auction ; }
 
 
-// a bidder uncovers their own bid. If the bid:
+// A bidder uncovers their own bid (a nat) and sends the same amount in mutez with the transaction. 
+// If the bid:
 // - is in the wrong format (doesn't type check with nat), or
 // - can't be unlocked for some reason
 // then the deposit will be open to anyone who garbage collects at the end of the auction
@@ -438,7 +433,7 @@ let uncover_bid (param : uncover_bid) (storage : storage) : result =
         | None -> (failwith error_AUCTIONED_TOKEN_NOT_FOUND : blind_auction_data)
         | Some d -> d in 
     // check the timeline is right
-    if not (Tezos.now >= data.deadline && Tezos.now < data.deadline + data.private_unlock_pd) 
+    if not (data.deadline <= Tezos.now && Tezos.now < data.deadline + data.private_unlock_pd) 
         then (failwith error_NOT_PRIVATE_UNLOCK_PERIOD : result) else
     // get the bid. Tezos.sender can only access their own bid
     // If the bid is in the wrong format, then it can't be unlocked. 
@@ -456,46 +451,44 @@ let uncover_bid (param : uncover_bid) (storage : storage) : result =
             | Some n -> n)
         | Fail_decrypt -> (failwith error_COULD_NOT_DECRYPT_BID : nat)
         | Fail_timelock -> (failwith error_TIMELOCK : nat) in 
+    // check that the bid is the amount sent with the transaction
+    if bid * 1mutez <> Tezos.amount then (failwith error_INCORRECT_BID_AMOUNT : result) else
     // manage the auction
-    // case 1: the bidder is the new leader 
-    if bid > data.leading_bid then (
-        // return the bidder's deposit
-        let bid_deposit = data.bid_deposit in 
-        let txndata_return_bid = () in 
-        let entrypoint_return_bid = 
-            match (Tezos.get_entrypoint_opt "%main" Tezos.sender : unit contract option) with
-            | None -> (failwith error_INVALID_ADDRESS : unit contract)
-            | Some e -> e in
-        let op_return_deposit = Tezos.transaction txndata_return_bid (bid_deposit * 1mutez) entrypoint_return_bid in 
-        // return the bid of the current leader 
-        let txndata_return_bid = [ { 
-            from_ = Tezos.self_address ; 
-            txs = [ { to_ = data.leader ; token_id = 0n ; amount = data.leading_bid ; } ; ] ; } ; ] in
-        let entrypoint_return_bid = 
-            match (Tezos.get_entrypoint_opt "%transfer" storage.ctez_address : transfer list contract option) with 
-            | None -> (failwith error_INVALID_ADDRESS : transfer list contract)
-            | Some e -> e in 
-        let op_return_bid = Tezos.transaction txndata_return_bid 0tez entrypoint_return_bid in 
+    // case 1: the bidder is the first to uncover their bid 
+    let no_one_has_bid : bool = data.leader = token.owner && data.leading_bid = 0n in 
+    if no_one_has_bid then (
+        // return the bidder's deposit (XTZ)
+        let redeem = to_redeem Tezos.sender (XTZ(data.bid_deposit)) storage.redeem in 
         // update the data
         let data = { data with leader = Tezos.sender ; leading_bid = bid ; } in 
-        [op_return_deposit ; op_return_bid ; ],
+        ([] : operation list),
         { storage with 
-            tokens_on_blind_auction = Big_map.update token (Some data) storage.tokens_on_blind_auction ; })
-    // case 2: the bidder is not the new leader
+            tokens_on_blind_auction = Big_map.update token (Some data) storage.tokens_on_blind_auction ; 
+            redeem = redeem ; })
+    else
+    // case 2: the bidder is the new leader
+    if bid > data.leading_bid then (
+        // return the bidder's deposit (XTZ)
+        let redeem = to_redeem Tezos.sender (XTZ(data.bid_deposit)) storage.redeem in 
+        // return the bid of the current leader (XTZ)
+        let redeem = to_redeem data.leader (XTZ(data.leading_bid)) storage.redeem in 
+        // update the data
+        let data = { data with leader = Tezos.sender ; leading_bid = bid ; } in 
+        ([] : operation list),
+        { storage with 
+            tokens_on_blind_auction = Big_map.update token (Some data) storage.tokens_on_blind_auction ; 
+            redeem = redeem ; })
+    // case 3: the bidder is not the new leader
     else ( 
         // do not execute a transfer, or change storage
-        // just return the deposit of the bidder 
-        let bid_deposit = data.bid_deposit in 
-        let txndata_return_deposit = () in 
-        let entrypoint_return_deposit = 
-            match (Tezos.get_entrypoint_opt "%main" Tezos.sender : unit contract option) with
-            | None -> (failwith error_INVALID_ADDRESS : unit contract)
-            | Some e -> e in
-        let op_return_deposit = Tezos.transaction txndata_return_deposit (bid_deposit * 1mutez) entrypoint_return_deposit in 
-        [op_return_deposit],
-        storage )
+        // just return the bidder's deposit (XTZ)
+        let redeem = to_redeem Tezos.sender (XTZ(data.bid_deposit)) storage.redeem in 
+        ([] : operation list),
+        {storage 
+            with redeem = redeem ; } )
 
 // the bidder forfeits the chance to participate in the auction and loses their bid 
+// the party removing the bid has to be able to accept payments in XTZ
 let remove_bid (param : remove_bid) (storage : storage) : result = 
     let (token, bidder) = (param.token, param.bidder) in 
     // get the auction data
@@ -506,19 +499,16 @@ let remove_bid (param : remove_bid) (storage : storage) : result =
     // check the timeline is right
     if not (Tezos.now >= data.deadline + data.private_unlock_pd) 
         then (failwith error_AUCTION_NOT_OVER : result) else
-    // get the chest (and bid?)
-    let (chest, storage) = 
+    // remove the chest from storage
+    let (_, storage) = 
         match Big_map.get_and_update (Tezos.sender, token) (None : chest option) storage.bids_on_blind_auction with
         | (None, _) -> (failwith error_BID_NOT_FOUND : chest * storage)
         | (Some c, m) -> (c, {storage with bids_on_blind_auction = m ;}) in 
     // transfer the deposit to the bidder (TODO : HALF OR SOMETHING?)
-    let txndata_transfer_deposit = () in 
-    let entrypoint_transfer_deposit = 
-        match (Tezos.get_entrypoint_opt "%main" Tezos.sender : unit contract option) with
-        | None -> (failwith error_INVALID_ADDRESS : unit contract)
-        | Some e -> e in
-    let op_transfer_deposit = Tezos.transaction txndata_transfer_deposit (data.bid_deposit * 1mutez) entrypoint_transfer_deposit in 
-    [op_transfer_deposit], storage
+    let redeem = to_redeem Tezos.sender (XTZ(data.bid_deposit)) storage.redeem in 
+    ([] : operation list), 
+    {storage with 
+        redeem = redeem ; }
 
 
 let finish_blind_auction (token : token_for_sale) (storage : storage) : result = 
@@ -531,27 +521,16 @@ let finish_blind_auction (token : token_for_sale) (storage : storage) : result =
     if not (Tezos.now >= data.deadline + data.private_unlock_pd) 
         then (failwith error_AUCTION_NOT_OVER : result) else
     if Tezos.sender <> data.leader && Tezos.sender <> token.owner then (failwith error_PERMISSIONS_DENIED : result) else
-    // transfer the CTEZ to the token owner 
-    let txndata_payout = [ { 
-        from_ = Tezos.self_address ; 
-        txs = [ { to_ = token.owner ; token_id = 0n ; amount = data.leading_bid ; } ; ] ; } ; ] in
-    let entrypoint_payout = 
-        match (Tezos.get_entrypoint_opt "%transfer" storage.ctez_address : transfer list contract option) with 
-        | None -> (failwith error_INVALID_ADDRESS : transfer list contract)
-        | Some e -> e in 
-    let op_payout = Tezos.transaction txndata_payout 0tez entrypoint_payout in 
+    // transfer the XTZ to the token owner 
+    let redeem = to_redeem token.owner (XTZ(data.leading_bid)) storage.redeem in 
     // transfer the tokens to the leader 
-    let txndata_tokens = [ { 
-        from_ = Tezos.self_address ; 
-        txs = [ { to_ = data.leader ; token_id = token.token_id ; amount = token.qty ; } ; ] ; } ; ] in
-    let entrypoint_tokens = 
-        match (Tezos.get_entrypoint_opt "%transfer" token.token_address : transfer list contract option) with
-        | None -> (failwith error_INVALID_ADDRESS : transfer list contract)
-        | Some e -> e in 
-    let op_tokens = Tezos.transaction txndata_tokens 0tez entrypoint_tokens in 
+    let redeem = 
+        let tokens_to_redeem = { token_address = token.token_address ; token_id = token.token_id ; qty = token.qty ; } in 
+        to_redeem data.leader (Tokens(tokens_to_redeem)) storage.redeem in 
     // finish 
-    [op_payout ; op_tokens ;],
-    storage
+    ([] : operation list),
+    { storage with
+        redeem = redeem ; }
 
 
 let blind_auction (param : blind_auction) (storage : storage) : result = 
